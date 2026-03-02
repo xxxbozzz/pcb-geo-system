@@ -22,7 +22,7 @@ DB_CONFIG = {
     'password': os.environ.get('DB_PASSWORD', 'root_password'),
     'host': os.environ.get('DB_HOST', 'mysql_db'),
     'port': 3306,
-    'raise_on_warnings': True,
+    'raise_on_warnings': False,
 }
 
 DB_NAME = 'geo_knowledge_engine'
