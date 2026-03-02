@@ -39,12 +39,15 @@ services:
     restart: unless-stopped
     volumes:
       - .:/app
+      - ./config/cookies:/app/config/cookies
     environment:
       - DB_HOST=mysql_db
       - DB_USER=root
       - DB_PASSWORD=root_password
       - DB_NAME=geo_knowledge_engine
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - WECHAT_APP_ID=${WECHAT_APP_ID}
+      - WECHAT_APP_SECRET=${WECHAT_APP_SECRET}
       - OTEL_SDK_DISABLED=true
       - MYSQL_CONNECTOR_PYTHON_TELEMETRY=0
       - TZ=Asia/Shanghai

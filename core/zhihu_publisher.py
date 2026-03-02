@@ -53,6 +53,10 @@ class ZhihuPublisher:
                     domain=c.get("domain", ".zhihu.com"),
                     path=c.get("path", "/"),
                 )
+            # 设置 x-xsrftoken（知乎 CSRF 防护必需）
+            xsrf = self.session.cookies.get("_xsrf", domain=".zhihu.com")
+            if xsrf:
+                self.session.headers["x-xsrftoken"] = xsrf
             log.info("知乎 Cookie 加载成功")
             return True
         except Exception as e:
@@ -100,9 +104,12 @@ class ZhihuPublisher:
             if topic_tags:
                 update_data["topics"] = [{"name": t} for t in topic_tags[:3]]
 
-            resp = self.session.patch(f"{API_BASE}/articles/{article_id}", json=update_data)
-            if resp.status_code != 200:
-                return {"success": False, "url": "", "message": f"更新草稿失败: {resp.status_code}"}
+            resp = self.session.put(f"{API_BASE}/articles/drafts/{article_id}", json=update_data)
+            if resp.status_code not in (200, 204):
+                # 尝试备用端点
+                resp = self.session.patch(f"{API_BASE}/articles/{article_id}", json=update_data)
+            if resp.status_code not in (200, 204):
+                return {"success": False, "url": "", "message": f"更新草稿失败: {resp.status_code} {resp.text[:200]}"}
 
             log.info(f"草稿内容已更新: {title[:30]}...")
 
