@@ -44,6 +44,7 @@ services:
       - DB_USER=root
       - DB_PASSWORD=root_password
       - DB_NAME=geo_knowledge_engine
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - OTEL_SDK_DISABLED=true
       - MYSQL_CONNECTOR_PYTHON_TELEMETRY=0
       - TZ=Asia/Shanghai
