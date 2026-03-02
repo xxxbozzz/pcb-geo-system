@@ -1,0 +1,16 @@
+crewai
+crewai-tools
+langchain-openai
+python-dotenv
+mysql-connector-python
+chromadb
+duckduckgo-search
+playwright
+streamlit
+pandas
+plotly
+graphviz
+pyvis
+markdown
+requests
+beautifulsoup4

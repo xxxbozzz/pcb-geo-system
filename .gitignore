@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+
+# Database data (local volumes)
+database/mysql_data/
+database/chroma_data/
+
+# Logs
+*.log
+batch_generator.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime
+token_usage.json
+
+# Cookies
+config/cookies/
+
+# Node
+node_modules/
+
+# Temp scripts
+run_ssh.exp
+run_ssh_2222.exp
+copy_id.exp
