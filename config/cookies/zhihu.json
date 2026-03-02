@@ -30,6 +30,12 @@
     "path": "/"
   },
   {
+    "name": "captcha_session_v2",
+    "value": "2|1:0|10:1772451165|18:captcha_session_v2|88:bkQ3WDgyOGptbEt2WFltc21lOE44TnAvU2dOakRmOG1yWEs2UlQvam4xVnFSUU1zRmtTMEc5N2o1TlA5azd1Rw==|c568ceefd31c3b4abfb8dfa5ef6087aceaa9d5958d6f9b0f36ca5fc169353386",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
     "name": "__snaker__id",
     "value": "maKQX9t2NvsO8qer",
     "domain": ".zhihu.com",
@@ -37,7 +43,7 @@
   },
   {
     "name": "gdxidpyhxdE",
-    "value": "ALkIecaWNvL7%2BsqLbtyzdVJg039mkOSplktvCqaY7klEZvqTfRpg2QdNWsupzDcKhmL1%2BrXJfAo0K1j9pvU%2BwxTbTbkE1T%2FvXY4zBYkTrrElN9dIWre8kuik2ACBc%2FjDQKWTET3\\CWE2%2FpgQzi1Nx%2FpolmCXaxdzHvQJisSJZZCZ5cHSN%3A1772452077353",
+    "value": "ALkIecaWNvL7%2BsqLbtyzdVJg039mkOSplktvCqaY7klEZvqTfRpg2QdNWsupzDcKhmL1%2BrXJfAo0K1j9pvU%2BwxTbTbkE1T%2FvXY4zBYkTrrElN9dIWre8kuik2ACBc%2FjDQKWTET3%5CWE2%2FpgQzi1Nx%2FpolmCXaxdzHvQJisSJZZCZ5cHSN%3A1772452077353",
     "domain": ".zhihu.com",
     "path": "/"
   },
@@ -48,32 +54,38 @@
     "path": "/"
   },
   {
+    "name": "z_c0",
+    "value": "2|1:0|10:1772451186|4:z_c0|92:Mi4xcElRekJnQUFBQUIwWVpURFI2anJHeVlBQUFCZ0FsVk5iY09TYWdCQy1haXRoLVU1T1Q2Z0lwbGI4ZC1hbFpXdHln|51aebf9366c9d04711181bb4bff1f8c21353497c7a5447fb18320df9a6f38310",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
     "name": "SESSIONID",
-    "value": "9x2v9kjSaXEFxFiDygvc7Afc6Ojy9RfBojdM7qJHt45",
+    "value": "vLQNydw5qKmAgXKaLLhFZMNcSLHGGEhT7gXzVc4cRn9",
     "domain": ".zhihu.com",
     "path": "/"
   },
   {
     "name": "Hm_lpvt_98beee57fd2ef70ccdd5ca52b9740c49",
-    "value": "1772451412",
+    "value": "1772453041",
     "domain": ".zhihu.com",
     "path": "/"
   },
   {
     "name": "JOID",
-    "value": "VlEUB0JmqNUKuuPJDED4xD36SyISUtjicY6Fq1oK_ZhJz6itQDfTeGO65sQEPfSzVhGqn9OmdneBiJBQB-CszP8=",
+    "value": "V14UA06euJKWCulVWr3rgqpGRL1F6_PC3XOOJW7v8PjWaLEdPCjCM_oJ7VNeS3Y36TMg4NY6Lq9SA96ViPtNKJM=",
     "domain": ".zhihu.com",
     "path": "/"
   },
   {
     "name": "osd",
-    "value": "VFoUBkJko9ULuuHCDEH4xjb6SiIQWdjjcYyOq1sK_5NJzqivSzfSeGGx5sUEP_-zVxGolNOndnWKiJFQBeuszf8=",
+    "value": "VFgTC0OdvpWeB-pTXbXmgaxBTLBG7fTK0HCIImbi8_7RYLweOi_KPvkP6ltTSHAw4T4j5tEyI6xUBNaYi_1KIJ4=",
     "domain": ".zhihu.com",
     "path": "/"
   },
   {
     "name": "BEC",
-    "value": "92a0fca0e2e4d1109c446d0a990ad863",
+    "value": "36dafdc5edb6c00297b032c63dc4b447",
     "domain": ".zhihu.com",
     "path": "/"
   }
