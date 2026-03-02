@@ -485,14 +485,122 @@ elif page == "内容管理":
 
             st.session_state["action"] = None
 
-        # 手动发布
+        # 手动发布 → 选择平台 → 自动推送
         elif action == "publish":
-            if execute_sql(
-                "UPDATE geo_articles SET publish_status = 2 WHERE id = %s",
-                (int(action_id),),
-            ):
-                st.success(f"文章 #{action_id} 已标记为已发布。")
-            st.session_state["action"] = None
+            detail = query(
+                f"SELECT id, title, content_markdown, quality_score, publish_status "
+                f"FROM geo_articles WHERE id = {int(action_id)}"
+            )
+            if detail.empty:
+                st.warning("未找到该文章。")
+                st.session_state["action"] = None
+            else:
+                row = detail.iloc[0]
+                score = int(row["quality_score"] or 0)
+                title = str(row["title"])
+
+                st.markdown('<div class="glass-panel" style="border-color:var(--brand-glow);">', unsafe_allow_html=True)
+                st.markdown(f'<div class="sub-title" style="margin-top:0;color:var(--brand-light);">{icon("send")} 发布文章 (ID: {action_id})</div>', unsafe_allow_html=True)
+
+                # 文章信息展示
+                st.markdown(f"""
+                <div style="padding:12px 16px;background:rgba(37,99,235,0.06);border-radius:8px;margin-bottom:16px;">
+                    <div style="font-size:1rem;font-weight:600;color:var(--text-primary);margin-bottom:4px;">{title[:60]}</div>
+                    <div style="font-size:0.8rem;color:var(--text-secondary);">
+                        质量分: {score_tag(score)} &nbsp;|&nbsp; 状态: {'已通过' if row['publish_status'] == 1 else '草稿' if row['publish_status'] == 0 else '已发布'}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # 平台选择
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    pub_zhihu = st.checkbox("📘 知乎专栏", value=True, key="pub_zhihu")
+                with col_p2:
+                    pub_wechat = st.checkbox("💚 微信公众号", value=True, key="pub_wechat")
+
+                # 模式选择
+                pub_mode = st.radio(
+                    "发布模式",
+                    ["保存到草稿箱（推荐）", "直接发布（立即上线）"],
+                    horizontal=True,
+                    key="pub_mode",
+                )
+                is_live = "直接" in pub_mode
+
+                if is_live:
+                    st.warning("⚠️ 直接发布后文章会立即上线，微信公众号每天仅可群发 1 次。")
+
+                # 确认发布按钮
+                col_confirm, col_cancel = st.columns(2)
+                with col_confirm:
+                    confirm = st.button("✅ 确认发布", use_container_width=True, type="primary")
+                with col_cancel:
+                    cancel = st.button("取消", use_container_width=True)
+
+                if cancel:
+                    st.session_state["action"] = None
+                    st.rerun()
+
+                if confirm:
+                    if not pub_zhihu and not pub_wechat:
+                        st.error("请至少选择一个发布平台。")
+                    else:
+                        content_md = row["content_markdown"] or ""
+                        results = []
+
+                        with st.spinner("正在推送文章..."):
+                            # ── 知乎 ──
+                            if pub_zhihu:
+                                try:
+                                    from core.zhihu_publisher import ZhihuPublisher
+                                    zhihu = ZhihuPublisher()
+                                    if not zhihu.ready:
+                                        results.append(("知乎", False, "Cookie 未就绪，请先运行登录脚本"))
+                                    else:
+                                        if is_live:
+                                            r = zhihu.publish_and_go_live(title, content_md)
+                                        else:
+                                            r = zhihu.publish(title, content_md, topic_tags=["PCB", "电子制造"])
+                                        results.append(("知乎", r["success"], r["message"]))
+                                except Exception as e:
+                                    results.append(("知乎", False, f"异常: {e}"))
+
+                            # ── 微信 ──
+                            if pub_wechat:
+                                try:
+                                    from core.wechat_publisher import WeChatPublisher
+                                    wechat = WeChatPublisher()
+                                    if not wechat.ready:
+                                        results.append(("微信", False, "AppID/AppSecret 未配置"))
+                                    else:
+                                        if is_live:
+                                            r = wechat.publish_and_go_live(title, content_md)
+                                        else:
+                                            r = wechat.publish(title, content_md)
+                                        results.append(("微信", r["success"], r["message"]))
+                                except Exception as e:
+                                    results.append(("微信", False, f"异常: {e}"))
+
+                        # ── 显示结果 ──
+                        any_success = False
+                        for platform, success, msg in results:
+                            if success:
+                                st.success(f"**{platform}**: {msg}")
+                                any_success = True
+                            else:
+                                st.error(f"**{platform}**: {msg}")
+
+                        # 更新数据库状态
+                        if any_success:
+                            execute_sql(
+                                "UPDATE geo_articles SET publish_status = 2 WHERE id = %s",
+                                (int(action_id),),
+                            )
+
+                        st.session_state["action"] = None
+
+                st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════

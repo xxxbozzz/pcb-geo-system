@@ -1,0 +1,80 @@
+[
+  {
+    "name": "_zap",
+    "value": "0e1436fc-fdea-4b12-a141-38d3c571b62b",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "_xsrf",
+    "value": "22f2e14c-008f-43d1-8692-4074b68a8a91",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "Hm_lvt_98beee57fd2ef70ccdd5ca52b9740c49",
+    "value": "1772451163",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "HMACCOUNT",
+    "value": "080B47F073AEAD6B",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "d_c0",
+    "value": "dGGUw0eo6xuPTu1ZambkNnDmclkmTHrUKZs=|1772451164",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "__snaker__id",
+    "value": "maKQX9t2NvsO8qer",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "gdxidpyhxdE",
+    "value": "ALkIecaWNvL7%2BsqLbtyzdVJg039mkOSplktvCqaY7klEZvqTfRpg2QdNWsupzDcKhmL1%2BrXJfAo0K1j9pvU%2BwxTbTbkE1T%2FvXY4zBYkTrrElN9dIWre8kuik2ACBc%2FjDQKWTET3\\CWE2%2FpgQzi1Nx%2FpolmCXaxdzHvQJisSJZZCZ5cHSN%3A1772452077353",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "q_c1",
+    "value": "9e81c8338df1468d8c66bd93a68f06f6|1772451182000|1772451182000",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "SESSIONID",
+    "value": "9x2v9kjSaXEFxFiDygvc7Afc6Ojy9RfBojdM7qJHt45",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "Hm_lpvt_98beee57fd2ef70ccdd5ca52b9740c49",
+    "value": "1772451412",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "JOID",
+    "value": "VlEUB0JmqNUKuuPJDED4xD36SyISUtjicY6Fq1oK_ZhJz6itQDfTeGO65sQEPfSzVhGqn9OmdneBiJBQB-CszP8=",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "osd",
+    "value": "VFoUBkJko9ULuuHCDEH4xjb6SiIQWdjjcYyOq1sK_5NJzqivSzfSeGGx5sUEP_-zVxGolNOndnWKiJFQBeuszf8=",
+    "domain": ".zhihu.com",
+    "path": "/"
+  },
+  {
+    "name": "BEC",
+    "value": "92a0fca0e2e4d1109c446d0a990ad863",
+    "domain": ".zhihu.com",
+    "path": "/"
+  }
+]
