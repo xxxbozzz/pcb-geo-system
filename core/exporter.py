@@ -85,7 +85,7 @@ class WebsiteExporter:
         cursor = cnx.cursor(dictionary=True)
         # 导出 status >= 1 (待审和已发布) 的文章
         cursor.execute("""
-            SELECT id, title, slug, content_markdown, meta_json, created_at, dim_action
+            SELECT id, title, slug, content_markdown, meta_json, created_at, updated_at, dim_action
             FROM geo_articles 
             WHERE publish_status >= 1
         """)
@@ -98,11 +98,18 @@ class WebsiteExporter:
             try:
                 # 1. 解析元数据
                 meta = {}
-                if row['meta_json']:
+                raw_meta = row['meta_json']
+                if raw_meta:
                     try:
-                        meta = json.loads(row['meta_json'])
+                        if isinstance(raw_meta, dict):
+                            meta = raw_meta
+                        elif isinstance(raw_meta, str):
+                            parsed = json.loads(raw_meta)
+                            meta = parsed if isinstance(parsed, dict) else {}
+                        else:
+                            meta = {}
                     except:
-                        pass
+                        meta = {}
                 
                 # 2. 生成 HTML
                 html_body = markdown.markdown(
