@@ -603,6 +603,104 @@ elif page == "内容管理":
                 st.markdown('</div>', unsafe_allow_html=True)
 
 
+    # ── GEO 真空词发现 & 手动生产 ──
+    st.markdown('<div class="glass-panel">', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-title" style="margin-top:0;">{icon("target")} GEO 真空词发现</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">'
+        '发现 AI 搜索引擎回答薄弱的关键词，筛选后手动触发文章生产。</p>',
+        unsafe_allow_html=True,
+    )
+
+    # 发现按钮
+    if st.button("🔍 发现 5 个真空词", use_container_width=True, key="discover_gap"):
+        with st.spinner("正在搜索 GEO 真空词..."):
+            try:
+                from core.trend_scout import TrendScout
+                scout = TrendScout(max_keywords=5)
+                new_kws = scout.run()
+                if new_kws:
+                    st.success(f"发现 {len(new_kws)} 个真空词并已入库")
+                    st.rerun()
+                else:
+                    st.warning("暂未发现新的真空词")
+            except Exception as e:
+                st.error(f"发现失败: {e}")
+
+    # 展示待选关键词（未绑定文章的前 5 个）
+    pending_kws = query(
+        "SELECT id, keyword, created_at FROM geo_keywords "
+        "WHERE target_article_id IS NULL ORDER BY created_at DESC LIMIT 5"
+    )
+
+    if not pending_kws.empty:
+        st.markdown(
+            '<p style="color:var(--text-secondary);font-size:0.85rem;margin-top:16px;margin-bottom:8px;">'
+            f'待筛选关键词（{len(pending_kws)} 个）：</p>',
+            unsafe_allow_html=True,
+        )
+        for _, kw_row in pending_kws.iterrows():
+            kw_id = int(kw_row["id"])
+            kw_text = kw_row["keyword"]
+
+            col_kw, col_produce, col_skip = st.columns([4, 1, 1])
+            with col_kw:
+                st.markdown(
+                    f'<div style="padding:8px 0;color:var(--text-primary);font-size:0.95rem;">'
+                    f'🎯 {kw_text}</div>',
+                    unsafe_allow_html=True,
+                )
+            with col_produce:
+                if st.button("生产", key=f"produce_{kw_id}", type="primary"):
+                    with st.spinner(f"正在生产「{kw_text}」..."):
+                        try:
+                            import subprocess, sys
+                            result = subprocess.run(
+                                [sys.executable, "-u", "-c",
+                                 f"""
+import os, sys
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+os.environ.setdefault("MYSQL_CONNECTOR_PYTHON_TELEMETRY", "0")
+from dotenv import load_dotenv
+load_dotenv()
+os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY", "")
+os.environ["OPENAI_API_BASE"] = "https://api.deepseek.com"
+os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com"
+from batch_generator import process_keyword, GeoAgents, GeoTasks
+from langchain_openai import ChatOpenAI
+agents = GeoAgents()
+tasks = GeoTasks()
+kw_row = {{"id": {kw_id}, "keyword": "{kw_text}"}}
+success = process_keyword(agents, tasks, kw_row)
+print("SUCCESS" if success else "FAILED")
+"""],
+                                capture_output=True, text=True, timeout=600,
+                                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            )
+                            if "SUCCESS" in result.stdout:
+                                st.success(f"✅ 「{kw_text}」生产完成！")
+                            else:
+                                st.error(f"生产失败: {result.stderr[-300:] if result.stderr else '未知错误'}")
+                        except subprocess.TimeoutExpired:
+                            st.error("生产超时（10分钟），请到日志查看进度")
+                        except Exception as e:
+                            st.error(f"生产异常: {e}")
+                    st.rerun()
+            with col_skip:
+                if st.button("跳过", key=f"skip_{kw_id}"):
+                    # 标记为已跳过（设 target_article_id = -1）
+                    execute_sql(
+                        "UPDATE geo_keywords SET target_article_id = -1 WHERE id = %s",
+                        (kw_id,),
+                    )
+                    st.rerun()
+    else:
+        st.info("暂无待筛选的真空词，点击上方按钮发现新词。")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+
 # ═══════════════════════════════════════════
 #  页面 3: 知识图谱
 # ═══════════════════════════════════════════

@@ -321,8 +321,16 @@ def process_keyword(agents: GeoAgents, tasks: GeoTasks, kw_row: dict) -> bool:
 
     passed = quality_loop(article)
 
-    # 质检通过 → 自动内链
+    # 质检通过 → 导出 HTML → 自动内链
     if passed:
+        # 导出 HTML 到同步目录
+        try:
+            from core.exporter import WebsiteExporter
+            exporter = WebsiteExporter()
+            exporter.export_article(article["id"])
+        except Exception as e:
+            log.error(f"HTML 导出失败: {e}")
+
         try:
             linker = AutoLinker()
             result = linker.link_article(article["id"])

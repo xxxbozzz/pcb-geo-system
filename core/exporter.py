@@ -1,31 +1,43 @@
 """
 官网导出器 (Website Exporter)
 =============================
-负责将数据库中的文章导出为适合官网 CMS 导入的格式。
+负责将质检通过的文章导出为 HTML 文件，供深亚官网通过 rsync 同步。
+
 功能：
-    1. HTML 导出：Markdown 转 HTML，注入 SEO Meta 标签
-    2. Sitemap 生成：生成 xml 站点地图
-    3. 增量同步：记录已导出的 ID，只导出新增部分
+    1. 单篇导出：质检通过后立即导出该文章 HTML
+    2. 每日清理：同步目录只保留当天的 HTML
+    3. 分类限定：技术动态 / 行业资讯
+    4. 时间窗口：23:00-24:00 不导出
 
 使用方法：
     from core.exporter import WebsiteExporter
     exporter = WebsiteExporter()
-    exporter.export_all(output_dir="output/website_sync")
+    exporter.export_article(article_id)
 """
 
 import os
-import json
-import markdown
 import re
-from datetime import datetime
+import json
+import glob
+import logging
+import markdown
+from datetime import datetime, date
 from core.db_manager import db_manager
+
+log = logging.getLogger("GEO.Exporter")
+
+# 输出目录
+OUTPUT_DIR = "output/website_sync"
+
+# 合法分类（只有这两种）
+VALID_CATEGORIES = {"技术动态", "行业资讯"}
+DEFAULT_CATEGORY = "技术动态"
 
 
 class WebsiteExporter:
-    """官网内容导出与同步引擎"""
+    """官网 HTML 导出器"""
 
-    HTML_TEMPLATE = """
-<!DOCTYPE html>
+    HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -71,181 +83,203 @@ class WebsiteExporter:
 
     def __init__(self):
         self.db = db_manager
+        self.output_dir = OUTPUT_DIR
 
-    def export_all(self, output_dir: str = "output/website_sync"):
-        """导出所有已发布(status=2) 或 待审(status=1) 的文章"""
-        print(f"🚀 启动官网导出任务，目标: {output_dir}")
-        os.makedirs(output_dir, exist_ok=True)
+    # ──────────── 公共方法 ────────────
 
+    def is_export_allowed(self) -> bool:
+        """检查当前时间是否允许导出（23:00-24:00 禁止）"""
+        hour = datetime.now().hour
+        if hour == 23:
+            log.info("🕐 当前 23:00-24:00，跳过 HTML 导出")
+            return False
+        return True
+
+    def export_article(self, article_id: int) -> bool:
+        """
+        导出单篇文章为 HTML
+
+        参数:
+            article_id: 数据库中的文章 ID
+
+        返回:
+            是否导出成功
+        """
+        # 时间窗口检查
+        if not self.is_export_allowed():
+            return False
+
+        # 先清理旧文件
+        self.cleanup_old_files()
+
+        # 读取文章
+        article = self._get_article(article_id)
+        if not article:
+            log.error(f"❌ 文章 {article_id} 不存在")
+            return False
+
+        try:
+            return self._write_html(article)
+        except Exception as e:
+            log.error(f"❌ 导出失败 {article_id}: {e}")
+            return False
+
+    def cleanup_old_files(self):
+        """清理同步目录中非今天的 HTML 文件"""
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        today_str = date.today().strftime("%Y-%m-%d")
+        removed = 0
+
+        for filepath in glob.glob(os.path.join(self.output_dir, "*.html")):
+            try:
+                mtime = os.path.getmtime(filepath)
+                file_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+                if file_date != today_str:
+                    os.remove(filepath)
+                    removed += 1
+            except Exception as e:
+                log.warning(f"清理文件失败 {filepath}: {e}")
+
+        if removed > 0:
+            log.info(f"🧹 清理了 {removed} 个非今天的 HTML 文件")
+
+    # ──────────── 内部方法 ────────────
+
+    def _get_article(self, article_id: int) -> dict | None:
+        """从数据库读取文章"""
         cnx = self.db.get_connection()
         if not cnx:
-            print("❌ 数据库连接失败")
-            return
+            return None
+        try:
+            cursor = cnx.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id, title, slug, content_markdown, meta_json, "
+                "created_at, updated_at, dim_action "
+                "FROM geo_articles WHERE id = %s",
+                (article_id,),
+            )
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+            cnx.close()
 
-        cursor = cnx.cursor(dictionary=True)
-        # 导出 status >= 1 (待审和已发布) 的文章
-        cursor.execute("""
-            SELECT id, title, slug, content_markdown, meta_json, created_at, updated_at, dim_action
-            FROM geo_articles 
-            WHERE publish_status >= 1
-        """)
-        articles = cursor.fetchall()
-        
-        exported_count = 0
-        urls = []
+    def _resolve_category(self, dim_action: str) -> str:
+        """将 dim_action 映射为合法分类"""
+        if dim_action in VALID_CATEGORIES:
+            return dim_action
+        return DEFAULT_CATEGORY
 
-        for row in articles:
+    def _write_html(self, row: dict) -> bool:
+        """将单篇文章写为 HTML 文件"""
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        # 1. 解析 meta
+        meta = {}
+        raw_meta = row.get("meta_json")
+        if raw_meta:
             try:
-                # 1. 解析元数据
+                if isinstance(raw_meta, dict):
+                    meta = raw_meta
+                elif isinstance(raw_meta, str):
+                    parsed = json.loads(raw_meta)
+                    meta = parsed if isinstance(parsed, dict) else {}
+            except (json.JSONDecodeError, TypeError):
                 meta = {}
-                raw_meta = row['meta_json']
-                if raw_meta:
-                    try:
-                        if isinstance(raw_meta, dict):
-                            meta = raw_meta
-                        elif isinstance(raw_meta, str):
-                            parsed = json.loads(raw_meta)
-                            meta = parsed if isinstance(parsed, dict) else {}
-                        else:
-                            meta = {}
-                    except:
-                        meta = {}
-                
-                # 2. 生成 HTML
-                html_body = markdown.markdown(
-                    row['content_markdown'],
-                    extensions=['tables', 'fenced_code', 'toc']
-                )
-                
-                # 提取摘要作为 description (取前150字，去除非文本)
-                description = meta.get('description', '')
-                if not description:
-                    text_only = re.sub(r'<[^>]+>', '', html_body)
-                    description = text_only[:150].replace('\n', ' ') + '...'
 
-                keywords = meta.get('keywords', [])
-                if isinstance(keywords, list):
-                    keywords = ",".join(keywords)
-                
-                full_html = self.HTML_TEMPLATE.format(
-                    title=row['title'],
-                    description=description,
-                    keywords=keywords,
-                    slug=row['slug'],
-                    date=row['created_at'].strftime("%Y-%m-%d"),
-                    category=row['dim_action'] or 'General',
-                    html_content=html_body,
-                    json_ld=self._generate_json_ld(row, description, row['created_at'].strftime("%Y-%m-%d"))
-                )
+        # 2. Markdown → HTML
+        html_body = markdown.markdown(
+            row["content_markdown"],
+            extensions=["tables", "fenced_code", "toc"],
+        )
 
-                # 3. 写入文件
-                safe_slug = row['slug'].strip('/')
-                file_path = os.path.join(output_dir, safe_slug + ".html")
-                
-                # 确保父目录存在
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(full_html)
-                
-                urls.append(f"https://www.pcbshenya.com/wiki/{safe_slug}")
-                exported_count += 1
-                # print(f"  ✅ 导出: {safe_slug}.html")
+        # 3. 提取 description / keywords
+        description = meta.get("description", "")
+        if not description:
+            text_only = re.sub(r"<[^>]+>", "", html_body)
+            description = text_only[:150].replace("\n", " ") + "..."
 
-            except Exception as e:
-                print(f"  ❌ 导出失败 {row['id']}: {e}")
+        keywords = meta.get("keywords", [])
+        if isinstance(keywords, list):
+            keywords = ",".join(keywords)
 
-        # 4. 生成 Sitemap 和 robots.txt
-        self._generate_sitemap(urls, output_dir)
-        self._generate_robots_txt(output_dir)
-        
-        cursor.close()
-        cnx.close()
-        print(f"🏁 导出完成，共 {exported_count} 篇文件及其 Sitemap。")
+        # 4. 分类
+        category = self._resolve_category(row.get("dim_action") or "")
 
-    def _generate_json_ld(self, row: dict, description: str, date: str):
+        # 5. 日期
+        created = row.get("created_at")
+        date_str = created.strftime("%Y-%m-%d") if created else datetime.now().strftime("%Y-%m-%d")
+
+        # 6. 生成完整 HTML
+        full_html = self.HTML_TEMPLATE.format(
+            title=row["title"],
+            description=description,
+            keywords=keywords,
+            slug=row["slug"],
+            date=date_str,
+            category=category,
+            html_content=html_body,
+            json_ld=self._generate_json_ld(row, description, date_str),
+        )
+
+        # 7. 写入文件
+        safe_slug = row["slug"].strip("/")
+        file_path = os.path.join(self.output_dir, safe_slug + ".html")
+        os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else self.output_dir, exist_ok=True)
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(full_html)
+
+        log.info(f"📄 HTML 已导出: {safe_slug}.html [{category}]")
+        return True
+
+    def _generate_json_ld(self, row: dict, description: str, date_str: str) -> str:
         """生成 Schema.org JSON-LD"""
-        # 1. Article Schema
         schema = {
             "@context": "https://schema.org",
             "@type": "TechArticle",
-            "headline": row['title'],
-            "image": ["https://www.pcbshenya.com/images/logo.png"], # 默认图
-            "datePublished": date,
-            "dateModified": row['updated_at'].strftime("%Y-%m-%d") if row.get('updated_at') else date,
+            "headline": row["title"],
+            "image": ["https://www.pcbshenya.com/images/logo.png"],
+            "datePublished": date_str,
+            "dateModified": row["updated_at"].strftime("%Y-%m-%d") if row.get("updated_at") else date_str,
             "author": [{
                 "@type": "Organization",
                 "name": "深亚电子",
-                "url": "https://www.pcbshenya.com"
+                "url": "https://www.pcbshenya.com",
             }],
             "description": description,
             "mainEntityOfPage": {
                 "@type": "WebPage",
-                "@id": f"https://www.pcbshenya.com/wiki/{row['slug']}"
-            }
+                "@id": f"https://www.pcbshenya.com/wiki/{row['slug']}",
+            },
         }
-        
-        # 2. FAQPage Schema (如果内容包含 FAQ)
-        # 简单解析 FAQ：查找 **Q:** 和 A:
-        content = row['content_markdown']
-        faq_items = []
-        
-        # 简单的正则匹配 FAQ
-        import re
-        qa_pairs = re.findall(r'\*\*Q[:：](.+?)\*\*\s*\n+A[:：](.+?)(\n\n|$)', content, re.DOTALL)
-        
+
+        # FAQ Schema
+        content = row.get("content_markdown", "")
+        qa_pairs = re.findall(
+            r"\*\*Q[:：](.+?)\*\*\s*\n+A[:：](.+?)(\n\n|$)", content, re.DOTALL
+        )
+
         if qa_pairs:
             faq_schema = {
                 "@context": "https://schema.org",
                 "@type": "FAQPage",
-                "mainEntity": []
-            }
-            for q, a, _ in qa_pairs:
-                faq_schema["mainEntity"].append({
-                    "@type": "Question",
-                    "name": q.strip(),
-                    "acceptedAnswer": {
-                        "@type": "Answer",
-                        "text": a.strip()
+                "mainEntity": [
+                    {
+                        "@type": "Question",
+                        "name": q.strip(),
+                        "acceptedAnswer": {"@type": "Answer", "text": a.strip()},
                     }
-                })
-            # 如果有 FAQ，返回数组 [Article, FAQPage]
+                    for q, a, _ in qa_pairs
+                ],
+            }
             return json.dumps([schema, faq_schema], ensure_ascii=False, indent=2)
-            
+
         return json.dumps(schema, ensure_ascii=False, indent=2)
-
-    def _generate_robots_txt(self, output_dir: str):
-        """生成 robots.txt"""
-        content = """User-agent: *
-Allow: /
-Sitemap: https://www.pcbshenya.com/wiki/sitemap.xml
-"""
-        with open(os.path.join(output_dir, "robots.txt"), "w") as f:
-            f.write(content)
-        print("  🤖 robots.txt 已生成")
-
-    def _generate_sitemap(self, urls: list, output_dir: str):
-        """生成标准 XML Sitemap"""
-        sitemap_content = ['<?xml version="1.0" encoding="UTF-8"?>']
-        sitemap_content.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
-        
-        today = datetime.now().strftime("%Y-%m-%d")
-        
-        for url in urls:
-            sitemap_content.append('  <url>')
-            sitemap_content.append(f'    <loc>{url}</loc>')
-            sitemap_content.append(f'    <lastmod>{today}</lastmod>')
-            sitemap_content.append('    <changefreq>weekly</changefreq>')
-            sitemap_content.append('    <priority>0.8</priority>')
-            sitemap_content.append('  </url>')
-            
-        sitemap_content.append('</urlset>')
-        
-        with open(os.path.join(output_dir, "sitemap.xml"), "w", encoding="utf-8") as f:
-            f.write("\n".join(sitemap_content))
-        print("  🗺️  Sitemap 已生成: sitemap.xml")
 
 
 if __name__ == "__main__":
     exporter = WebsiteExporter()
-    exporter.export_all()
+    print(f"当前是否允许导出: {exporter.is_export_allowed()}")
+    exporter.cleanup_old_files()
+    print("✅ 清理完成")
