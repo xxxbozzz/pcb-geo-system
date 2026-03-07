@@ -542,9 +542,6 @@ class CapabilityStore:
                 INSERT INTO geo_capability_spec_sources
                 (spec_id, source_id, citation_note, priority_weight)
                 VALUES (%s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                citation_note=VALUES(citation_note),
-                priority_weight=VALUES(priority_weight)
                 """,
                 (spec_id, source_id, spec.get("capability_name"), order),
             )
