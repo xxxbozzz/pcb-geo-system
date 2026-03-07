@@ -94,6 +94,11 @@ class CapabilityStore:
         if not cnx:
             return False
 
+        try:
+            cnx.raise_on_warnings = False
+        except Exception:
+            pass
+
         cursor = cnx.cursor()
         try:
             statement_lines: list[str] = []
