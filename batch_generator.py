@@ -42,6 +42,13 @@ from core.quality_checker import QualityChecker
 from core.auto_fixer import AutoFixer
 from core.linker import AutoLinker
 from core.budget import tracker
+from core.build_info import format_build_label
+from core.run_state import (
+    clear_current_run_id,
+    clear_saved_article_result,
+    pop_saved_article_result,
+    set_current_run_id,
+)
 from core.trend_scout import TrendScout
 
 
@@ -117,16 +124,17 @@ def get_pending_keywords(limit: int = 1) -> list:
         cnx.close()
 
 
-def get_latest_draft() -> dict | None:
-    """获取最新的草稿文章"""
+def get_article(article_id: int) -> dict | None:
+    """按 ID 获取文章"""
     cnx = db_manager.get_connection()
     if not cnx:
         return None
     try:
         cursor = cnx.cursor(dictionary=True)
         cursor.execute(
-            "SELECT id, title, content_markdown FROM geo_articles "
-            "WHERE publish_status = 0 ORDER BY created_at DESC LIMIT 1"
+            "SELECT id, title, slug, content_markdown, publish_status "
+            "FROM geo_articles WHERE id = %s LIMIT 1",
+            (article_id,),
         )
         return cursor.fetchone()
     finally:
@@ -306,18 +314,43 @@ def process_keyword(agents: GeoAgents, tasks: GeoTasks, kw_row: dict) -> bool:
     """处理单个关键词：生成 + 质检闭环"""
     keyword = kw_row["keyword"]
     kw_id = kw_row["id"]
+    run_id = f"kw-{kw_id}-{int(time.time() * 1000)}"
     log.info(f"⚡ 开始处理: {keyword}")
 
+    clear_saved_article_result(run_id)
+    set_current_run_id(run_id)
     try:
         generate_article(agents, tasks, keyword)
     except Exception as e:
         log.error(f"生成失败 [{keyword}]: {e}")
         return False
+    finally:
+        clear_current_run_id()
 
-    article = get_latest_draft()
-    if not article:
-        log.error(f"未找到草稿文章: {keyword}")
+    save_result = pop_saved_article_result(run_id)
+    if not save_result:
+        log.error(f"生成结束后未捕获入库结果: {keyword}")
         return False
+
+    if not save_result.get("success"):
+        reason = save_result.get("reason", "unknown")
+        log.error(f"文章未成功入库 [{keyword}]: {reason}")
+        return False
+
+    article_id = save_result.get("article_id")
+    if not article_id:
+        log.error(f"文章入库缺少 article_id: {keyword}")
+        return False
+
+    article = get_article(int(article_id))
+    if not article:
+        log.error(f"未找到已入库文章: {keyword} -> #{article_id}")
+        return False
+
+    log.info(
+        f"🧾 已定位本次文章: #{article['id']} "
+        f"{'(更新已有文章)' if save_result.get('action') == 'updated' else '(新建文章)'}"
+    )
 
     passed = quality_loop(article)
 
@@ -400,6 +433,7 @@ def run_trend_scout() -> list[str]:
 def main():
     """主循环 — 增量热点驱动生产模式"""
     log.info("GEO 知识引擎 v4.0 启动（增量模式）")
+    log.info(f"   构建版本: {format_build_label()}")
     log.info(f"   文章上限: {MAX_ARTICLES} 篇 | {tracker.monthly_summary()}")
 
     if not check_api_health():

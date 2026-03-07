@@ -82,21 +82,32 @@ class DatabaseManager:
         cnx.close()
         return result is not None
 
-    def save_article(self, article_data: dict, status: int = 0) -> bool:
+    def save_article_with_result(self, article_data: dict, status: int = 0) -> dict:
         """
-        保存文章到数据库
+        保存文章到数据库，并返回入库结果
 
         参数:
             article_data: 包含 title, slug, content, meta, dim_* 的字典
             status: 发布状态 (0=草稿, 1=待审, 2=已发, 3=归档)
 
         返回:
-            是否保存成功
+            {
+                "success": bool,
+                "article_id": int | None,
+                "action": str,
+                "reason": str | None,
+            }
         """
         cnx = self.get_connection()
         if not cnx:
-            return False
+            return {
+                "success": False,
+                "article_id": None,
+                "action": "none",
+                "reason": "db_unavailable",
+            }
 
+        cursor = None
         try:
             cursor = cnx.cursor()
             content_hash = self._calculate_hash(article_data.get('content', ''))
@@ -104,17 +115,21 @@ class DatabaseManager:
             # 内容去重检查
             if self.is_duplicate_content(content_hash):
                 print(f"⚠️ 检测到重复内容: {article_data.get('title')}，已跳过。")
-                cursor.close()
-                cnx.close()
-                return False
+                return {
+                    "success": False,
+                    "article_id": None,
+                    "action": "skipped",
+                    "reason": "duplicate_content",
+                }
 
-            # 使用 UPSERT：新文章插入，相同 slug 则更新
+            # 使用 UPSERT：新文章插入，相同 slug 则更新，并返回命中的文章 ID
             query = """
                 INSERT INTO geo_articles
                 (title, slug, meta_json, content_markdown, content_hash,
                  publish_status, dim_subject, dim_action, dim_attribute)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
+                id=LAST_INSERT_ID(id),
                 title=%s, meta_json=%s, content_markdown=%s,
                 content_hash=%s, updated_at=NOW()
             """
@@ -139,16 +154,37 @@ class DatabaseManager:
 
             cursor.execute(query, values)
             cnx.commit()
-            print(f"✅ 文章已保存: {article_data.get('title')} (状态: {status})")
-            cursor.close()
-            cnx.close()
-            return True
+            article_id = cursor.lastrowid or None
+            action = "created" if cursor.rowcount == 1 else "updated"
+            print(f"✅ 文章已保存: {article_data.get('title')} (ID: {article_id}, 状态: {status})")
+            return {
+                "success": True,
+                "article_id": article_id,
+                "action": action,
+                "reason": None,
+            }
 
         except Exception as e:
             print(f"❌ 保存文章失败: {e}")
-            if cnx:
-                cnx.close()
-            return False
+            try:
+                cnx.rollback()
+            except Exception:
+                pass
+            return {
+                "success": False,
+                "article_id": None,
+                "action": "none",
+                "reason": str(e),
+            }
+        finally:
+            if cursor:
+                cursor.close()
+            cnx.close()
+
+    def save_article(self, article_data: dict, status: int = 0) -> bool:
+        """兼容旧接口，仅返回是否保存成功。"""
+        result = self.save_article_with_result(article_data, status=status)
+        return bool(result.get("success"))
 
     # ──────────────────── 关键词操作 ────────────────────
 

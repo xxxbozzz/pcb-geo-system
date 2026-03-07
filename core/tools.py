@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 from crewai_tools import FileReadTool, ScrapeWebsiteTool
 from playwright.sync_api import sync_playwright
+from core.run_state import record_saved_article_result
 
 
 # ═══════════════════════════════════════════════════════
@@ -256,8 +257,22 @@ class ArticleDatabaseSaveTool(BaseTool):
             if not save_data['title'] or not save_data['content']:
                 return "❌ 标题和正文为必填字段。"
 
-            success = db_manager.save_article(save_data, status=0)  # 0 = 草稿
-            return f"✅ 文章 '{save_data['title']}' 已入库 (Draft)。" if success else f"❌ 文章 '{save_data['title']}' 保存失败。"
+            save_result = db_manager.save_article_with_result(save_data, status=0)
+            record_saved_article_result({
+                **save_result,
+                "title": save_data["title"],
+                "slug": save_data.get("slug"),
+            })
+
+            if save_result.get("success"):
+                article_id = save_result.get("article_id")
+                action = "已更新" if save_result.get("action") == "updated" else "已入库"
+                return f"✅ 文章 '{save_data['title']}' {action} (ID: {article_id}, Draft)。"
+
+            if save_result.get("reason") == "duplicate_content":
+                return f"⚠️ 文章 '{save_data['title']}' 内容重复，已跳过保存。"
+
+            return f"❌ 文章 '{save_data['title']}' 保存失败: {save_result.get('reason', 'unknown')}"
         except Exception as e:
             return f"文章入库错误: {e}"
 

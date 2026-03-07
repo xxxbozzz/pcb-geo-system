@@ -21,6 +21,7 @@ if PROJECT_ROOT not in sys.path:
 
 from dashboard.components import inject_theme, icon, kpi_card, score_tag, status_dot
 from dashboard.components import article_row, board_column, sys_info_row, section_header
+from core.build_info import format_build_label
 
 st.set_page_config(
     page_title="PCB GEO 知识引擎 | 深亚电子",
@@ -111,6 +112,7 @@ if st.sidebar.button("刷新数据"):
 
 st.sidebar.markdown("---")
 st.sidebar.caption("© 2026 深亚电子 · GEO Engine v4.0")
+st.sidebar.caption(f"Build: {format_build_label()}")
 
 
 # ═══════════════════════════════════════════

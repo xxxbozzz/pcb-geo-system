@@ -14,7 +14,30 @@ if [ -z "$SERVER_IP" ]; then
     exit 1
 fi
 
+GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+GIT_COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+if [ -n "$(git status --porcelain --untracked-files=all 2>/dev/null)" ]; then
+    GIT_DIRTY=true
+else
+    GIT_DIRTY=false
+fi
+DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+TMP_BUILD_INFO=$(mktemp /tmp/pcb-geo-build.XXXXXX.json)
+trap 'rm -f "$TMP_BUILD_INFO"' EXIT
+
+cat > "$TMP_BUILD_INFO" <<EOF
+{
+  "git_commit": "$GIT_COMMIT",
+  "git_commit_short": "$GIT_COMMIT_SHORT",
+  "git_branch": "$GIT_BRANCH",
+  "git_dirty": $GIT_DIRTY,
+  "deployed_at": "$DEPLOYED_AT"
+}
+EOF
+
 echo "🚀 PCB GEO v3.0 部署到 $SERVER_IP"
+echo "🧾 部署版本: $GIT_BRANCH@$GIT_COMMIT_SHORT (dirty=$GIT_DIRTY)"
 
 # ─── 1. 远程环境准备 ───
 echo "📦 准备远程环境..."
@@ -40,6 +63,8 @@ rsync -avz --progress \
     --exclude '*.log' --exclude '.DS_Store' --exclude 'database/mysql_data' \
     --exclude 'database/chroma_data' --exclude 'node_modules' \
     ./ $USER@$SERVER_IP:$REMOTE_DIR/
+
+rsync -avz "$TMP_BUILD_INFO" "$USER@$SERVER_IP:$REMOTE_DIR/build_info.json"
 
 # ─── 3. 远程构建 & 启动 ───
 echo "🐳 构建并启动容器..."
@@ -84,4 +109,3 @@ ssh $USER@$SERVER_IP << 'DEPLOY'
 DEPLOY
 
 echo "🎉 部署完成! Dashboard: http://$SERVER_IP:8503"
-
