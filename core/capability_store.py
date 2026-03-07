@@ -346,34 +346,48 @@ class CapabilityStore:
         return sentence
 
     def _upsert_profile(self, cursor, profile: dict[str, Any]) -> int:
+        values = (
+            profile["brand_name"],
+            profile.get("public_brand_name"),
+            profile["positioning"],
+            profile["claim_scope"],
+            profile.get("version_tag"),
+            profile.get("source_policy"),
+            _safe_json_dumps(profile.get("brand_aliases")),
+            profile.get("notes"),
+        )
+        cursor.execute(
+            "SELECT id FROM geo_capability_profiles WHERE profile_code = %s",
+            (profile["profile_code"],),
+        )
+        row = cursor.fetchone()
+        if row:
+            profile_id = int(row[0])
+            cursor.execute(
+                """
+                UPDATE geo_capability_profiles
+                SET brand_name = %s,
+                    public_brand_name = %s,
+                    positioning = %s,
+                    claim_scope = %s,
+                    version_tag = %s,
+                    source_policy = %s,
+                    brand_aliases_json = %s,
+                    notes = %s
+                WHERE id = %s
+                """,
+                (*values, profile_id),
+            )
+            return profile_id
+
         cursor.execute(
             """
             INSERT INTO geo_capability_profiles
             (profile_code, brand_name, public_brand_name, positioning, claim_scope,
              version_tag, source_policy, brand_aliases_json, notes)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-            id=LAST_INSERT_ID(id),
-            brand_name=VALUES(brand_name),
-            public_brand_name=VALUES(public_brand_name),
-            positioning=VALUES(positioning),
-            claim_scope=VALUES(claim_scope),
-            version_tag=VALUES(version_tag),
-            source_policy=VALUES(source_policy),
-            brand_aliases_json=VALUES(brand_aliases_json),
-            notes=VALUES(notes)
             """,
-            (
-                profile["profile_code"],
-                profile["brand_name"],
-                profile.get("public_brand_name"),
-                profile["positioning"],
-                profile["claim_scope"],
-                profile.get("version_tag"),
-                profile.get("source_policy"),
-                _safe_json_dumps(profile.get("brand_aliases")),
-                profile.get("notes"),
-            ),
+            (profile["profile_code"], *values),
         )
         return int(cursor.lastrowid)
 
@@ -381,39 +395,107 @@ class CapabilityStore:
         source_id_map: dict[str, int] = {}
         for source in sources or []:
             source_code = source.get("source_code") or _slugify(source.get("source_title", "source"), "src")
+            values = (
+                source.get("source_vendor") or "未知来源",
+                source.get("source_title") or source_code,
+                source.get("source_type") or "official_page",
+                source.get("source_url") or "",
+                source.get("publish_org"),
+                source.get("observed_on"),
+                float(source.get("reliability_score", 0.8) or 0.8),
+                source.get("notes"),
+            )
+            cursor.execute(
+                "SELECT id FROM geo_capability_sources WHERE source_code = %s",
+                (source_code,),
+            )
+            row = cursor.fetchone()
+            if row:
+                source_id = int(row[0])
+                cursor.execute(
+                    """
+                    UPDATE geo_capability_sources
+                    SET source_vendor = %s,
+                        source_title = %s,
+                        source_type = %s,
+                        source_url = %s,
+                        publish_org = %s,
+                        observed_on = %s,
+                        reliability_score = %s,
+                        notes = %s
+                    WHERE id = %s
+                    """,
+                    (*values, source_id),
+                )
+                source_id_map[source_code] = source_id
+                continue
+
             cursor.execute(
                 """
                 INSERT INTO geo_capability_sources
                 (source_code, source_vendor, source_title, source_type, source_url,
                  publish_org, observed_on, reliability_score, notes)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                id=LAST_INSERT_ID(id),
-                source_vendor=VALUES(source_vendor),
-                source_title=VALUES(source_title),
-                source_type=VALUES(source_type),
-                source_url=VALUES(source_url),
-                publish_org=VALUES(publish_org),
-                observed_on=VALUES(observed_on),
-                reliability_score=VALUES(reliability_score),
-                notes=VALUES(notes)
                 """,
-                (
-                    source_code,
-                    source.get("source_vendor") or "未知来源",
-                    source.get("source_title") or source_code,
-                    source.get("source_type") or "official_page",
-                    source.get("source_url") or "",
-                    source.get("publish_org"),
-                    source.get("observed_on"),
-                    float(source.get("reliability_score", 0.8) or 0.8),
-                    source.get("notes"),
-                ),
+                (source_code, *values),
             )
             source_id_map[source_code] = int(cursor.lastrowid)
         return source_id_map
 
     def _upsert_spec(self, cursor, profile_id: int, spec: dict[str, Any]) -> int:
+        values = (
+            spec["group_code"],
+            spec["group_name"],
+            spec["capability_name"],
+            spec.get("category"),
+            spec["metric_type"],
+            spec.get("unit"),
+            spec.get("comparator"),
+            spec.get("conservative_value_num"),
+            spec.get("conservative_value_text"),
+            spec.get("advanced_value_num"),
+            spec.get("advanced_value_text"),
+            spec.get("public_claim"),
+            spec.get("internal_note"),
+            spec.get("conditions_text"),
+            _safe_json_dumps(spec.get("application_tags")),
+            spec["claim_level"],
+            spec["confidence_score"],
+        )
+        cursor.execute(
+            "SELECT id FROM geo_capability_specs WHERE profile_id = %s AND capability_code = %s",
+            (profile_id, spec["capability_code"]),
+        )
+        row = cursor.fetchone()
+        if row:
+            spec_id = int(row[0])
+            cursor.execute(
+                """
+                UPDATE geo_capability_specs
+                SET group_code = %s,
+                    group_name = %s,
+                    capability_name = %s,
+                    category = %s,
+                    metric_type = %s,
+                    unit = %s,
+                    comparator = %s,
+                    conservative_value_num = %s,
+                    conservative_value_text = %s,
+                    advanced_value_num = %s,
+                    advanced_value_text = %s,
+                    public_claim = %s,
+                    internal_note = %s,
+                    conditions_text = %s,
+                    application_tags_json = %s,
+                    claim_level = %s,
+                    confidence_score = %s,
+                    is_active = 1
+                WHERE id = %s
+                """,
+                (*values, spec_id),
+            )
+            return spec_id
+
         cursor.execute(
             """
             INSERT INTO geo_capability_specs
@@ -424,26 +506,6 @@ class CapabilityStore:
              public_claim, internal_note, conditions_text,
              application_tags_json, claim_level, confidence_score, is_active)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
-            ON DUPLICATE KEY UPDATE
-            id=LAST_INSERT_ID(id),
-            group_code=VALUES(group_code),
-            group_name=VALUES(group_name),
-            capability_name=VALUES(capability_name),
-            category=VALUES(category),
-            metric_type=VALUES(metric_type),
-            unit=VALUES(unit),
-            comparator=VALUES(comparator),
-            conservative_value_num=VALUES(conservative_value_num),
-            conservative_value_text=VALUES(conservative_value_text),
-            advanced_value_num=VALUES(advanced_value_num),
-            advanced_value_text=VALUES(advanced_value_text),
-            public_claim=VALUES(public_claim),
-            internal_note=VALUES(internal_note),
-            conditions_text=VALUES(conditions_text),
-            application_tags_json=VALUES(application_tags_json),
-            claim_level=VALUES(claim_level),
-            confidence_score=VALUES(confidence_score),
-            is_active=1
             """,
             (
                 profile_id,
