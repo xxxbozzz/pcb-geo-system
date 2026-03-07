@@ -26,6 +26,7 @@ import gc
 import time
 import json
 import logging
+from datetime import datetime, timedelta
 
 # ─── 禁用 OpenTelemetry（防止 Python 3.13 导入卡死）───
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
@@ -66,8 +67,10 @@ MAX_REPAIR_ATTEMPTS = 3     # 单篇最大返修次数
 PASS_THRESHOLD = 80         # 质检通过分数线
 COOLDOWN_SECONDS = 5        # 文章间冷却（防 API 限流）
 SCOUT_MAX_RETRIES = 3       # 侦察最大重试次数
-MAX_ARTICLES = int(os.getenv("MAX_ARTICLES", "120"))             # 文章总量上限（增量模式）
-INCREMENTAL_CHECK_HOURS = 6  # 达到上限后多久检查一次搜索热点（小时）
+MAX_ARTICLES = int(os.getenv("MAX_ARTICLES", "120"))             # 基准文章量，到达后切入 GEO 真空词自动生产模式
+DAILY_GAP_ARTICLES = int(os.getenv("DAILY_GAP_ARTICLES", "5"))   # 每天自动生产的 GEO 真空词文章数量
+GEO_GAP_PRIORITY = 9999                                           # TrendScout 注入的高优先级真空词标记
+GAP_MODE_RETRY_SECONDS = int(os.getenv("GAP_MODE_RETRY_SECONDS", "3600"))
 
 
 # ═══════════════════════════════════════════
@@ -117,6 +120,25 @@ def get_pending_keywords(limit: int = 1) -> list:
             "SELECT id, keyword FROM geo_keywords "
             "WHERE target_article_id IS NULL ORDER BY id ASC LIMIT %s",
             (limit,),
+        )
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+def get_pending_gap_keywords(limit: int = 5) -> list:
+    """获取 GEO 真空词队列（高优先级自动生产关键词）"""
+    cnx = db_manager.get_connection()
+    if not cnx:
+        return []
+    try:
+        cursor = cnx.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, keyword FROM geo_keywords "
+            "WHERE target_article_id IS NULL AND search_volume >= %s "
+            "ORDER BY created_at ASC, id ASC LIMIT %s",
+            (GEO_GAP_PRIORITY, limit),
         )
         return cursor.fetchall()
     finally:
@@ -415,10 +437,41 @@ def get_total_articles() -> int:
         cnx.close()
 
 
-def run_trend_scout() -> list[str]:
+def get_today_gap_article_count() -> int:
+    """统计今天已自动生成的 GEO 真空词文章数"""
+    cnx = db_manager.get_connection()
+    if not cnx:
+        return 0
+    try:
+        cursor = cnx.cursor()
+        cursor.execute(
+            "SELECT COUNT(DISTINCT a.id) "
+            "FROM geo_articles a "
+            "JOIN geo_keywords k ON k.target_article_id = a.id "
+            "WHERE k.search_volume >= %s AND DATE(a.created_at) = CURDATE()",
+            (GEO_GAP_PRIORITY,),
+        )
+        result = cursor.fetchone()
+        return int(result[0] or 0) if result else 0
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+def sleep_until_next_gap_window():
+    """今日 quota 完成后，休眠到次日 00:05。"""
+    now = datetime.now()
+    next_run = (now + timedelta(days=1)).replace(hour=0, minute=5, second=0, microsecond=0)
+    seconds = max(300, int((next_run - now).total_seconds()))
+    hours = round(seconds / 3600, 2)
+    log.info(f"🌙 今日 GEO 真空词 quota 已完成，休眠至次日窗口（约 {hours}h）")
+    time.sleep(seconds)
+
+
+def run_trend_scout(max_keywords: int = 10) -> list[str]:
     """调用 TrendScout 发现新热词并注入关键词队列，返回新增词列表"""
     try:
-        scout = TrendScout(max_keywords=10)
+        scout = TrendScout(max_keywords=max_keywords)
         new_kws = scout.run()
         return new_kws
     except Exception as e:
@@ -434,7 +487,11 @@ def main():
     """主循环 — 增量热点驱动生产模式"""
     log.info("GEO 知识引擎 v4.0 启动（增量模式）")
     log.info(f"   构建版本: {format_build_label()}")
-    log.info(f"   文章上限: {MAX_ARTICLES} 篇 | {tracker.monthly_summary()}")
+    log.info(
+        f"   基准文章量: {MAX_ARTICLES} 篇 | "
+        f"日真空词产能: {DAILY_GAP_ARTICLES} 篇 | "
+        f"{tracker.monthly_summary()}"
+    )
 
     if not check_api_health():
         log.critical("❌ API 连通性检查失败，退出。")
@@ -448,22 +505,45 @@ def main():
     while True:
         gc.collect()
 
-        # ── 文章数量上限检查（增量模式）──
+        # ── 120 篇后：切换到 GEO 真空词自动生产模式 ──
         total = get_total_articles()
         if total >= MAX_ARTICLES:
+            today_gap_count = get_today_gap_article_count()
+            remaining = DAILY_GAP_ARTICLES - today_gap_count
             log.info(
-                f"📦 已有 {total} 篇文章（当前设定基准 {MAX_ARTICLES}）。"
-                f"进入热点侦察模式，仅收集热点词入库，供用户后续选择..."
+                f"🎯 已有 {total} 篇文章（基准 {MAX_ARTICLES}）。"
+                f"进入 GEO 真空词自动生产模式，今日进度 {today_gap_count}/{DAILY_GAP_ARTICLES}。"
             )
-            # 用 TrendScout 发现热点关键词并入库
-            new_kws = run_trend_scout()
-            if new_kws:
-                log.info(f"🔥 捕获并入库 {len(new_kws)} 个热点关键词。")
-            else:
-                log.info(f"💤 暂无强烈的热点搜索词。")
-            
-            log.info(f"💤 侦察完成，休眠 {INCREMENTAL_CHECK_HOURS}h 后自动下一轮扫描。")
-            time.sleep(INCREMENTAL_CHECK_HOURS * 3600)
+
+            if remaining <= 0:
+                sleep_until_next_gap_window()
+                continue
+
+            pending_gap = get_pending_gap_keywords(limit=remaining)
+            if len(pending_gap) < remaining:
+                scout_target = max(remaining * 2, DAILY_GAP_ARTICLES)
+                new_kws = run_trend_scout(max_keywords=scout_target)
+                if new_kws:
+                    log.info(f"🔥 捕获并入库 {len(new_kws)} 个 GEO 真空词。")
+                else:
+                    log.info("💤 暂未发现新的 GEO 真空词。")
+                pending_gap = get_pending_gap_keywords(limit=remaining)
+
+            if not pending_gap:
+                log.info(f"💤 当前无可生产的 GEO 真空词，{GAP_MODE_RETRY_SECONDS // 60} 分钟后重试。")
+                time.sleep(GAP_MODE_RETRY_SECONDS)
+                continue
+
+            for kw in pending_gap[:remaining]:
+                success = process_keyword(agents, tasks, kw)
+                if success:
+                    total_success += 1
+                else:
+                    total_failed += 1
+
+                log.info(f"累计 | 成功: {total_success} | 失败: {total_failed} | {tracker.monthly_summary()}")
+                time.sleep(COOLDOWN_SECONDS)
+
             continue
 
 
