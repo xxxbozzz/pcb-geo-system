@@ -100,7 +100,10 @@ class GeoGapScout:
     找出 AI 平台知识薄弱、我们知识库尚未覆盖的 PCB 话题。
     """
 
-    def __init__(self, max_inject: int = 10):
+    def __init__(self, max_inject: int = 10, max_keywords: int | None = None):
+        # 兼容旧调用：TrendScout(max_keywords=N)
+        if max_keywords is not None:
+            max_inject = max_keywords
         self.max_inject = max_inject
         self._api_key = os.getenv("DEEPSEEK_API_KEY", "")
         self._api_base = "https://api.deepseek.com/v1"
