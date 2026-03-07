@@ -110,7 +110,19 @@ class CapabilityStore:
                 if stripped.endswith(";"):
                     statement = "\n".join(statement_lines).strip()
                     if statement:
-                        cursor.execute(statement)
+                        try:
+                            cursor.execute(statement)
+                        except Exception as e:
+                            message = str(e)
+                            if (
+                                "1050" in message
+                                or "already exists" in message
+                                or "1681" in message
+                                or "Integer display width is deprecated" in message
+                            ):
+                                statement_lines = []
+                                continue
+                            raise
                     statement_lines = []
 
             cnx.commit()
