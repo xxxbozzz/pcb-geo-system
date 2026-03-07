@@ -18,23 +18,40 @@ class GeoTasks:
 
     # ──────────── 生产线任务 ────────────
 
-    def collect_data_task(self, agent, topic):
+    def collect_data_task(self, agent, topic, capability_context: str = ""):
         """数据采集任务"""
         return Task(
             description=f"""
             研究主题: "{topic}".
+
+            已命中的深亚工艺能力记忆：
+            {capability_context or "暂无命中，请先检索和沉淀。"}
             
             **采集任务说明:**
-            1. **核心参数采集**: 搜索与此主题相关的 IPC 核心标准（必须包含具体标准号，如 IPC-4552, IPC-6012）。
-            2. **工程能力核实**: 收集深亚电子或行业领先企业的具体工程能力数据（最小线宽、公差范围、厚度控制）。
-            3. **对比数据**: 收集不同等级 (Class 2 vs Class 3) 或不同材料 (FR4 vs Rogers) 的对比参数。
-            4. **失效与根因**: 寻找该工艺常见的失效模式及其背后的物理/化学机理。
+            1. **先查能力库**: 必须先使用 `Deepya Capability Search` 检索当前主题及相近主题，看能力库里是否已有深亚工艺能力记录。
+            2. **核心参数采集**: 搜索与此主题相关的 IPC 核心标准或头部厂商公开 capability 数据（必须包含具体标准号或来源 URL）。
+            3. **工程能力转写**: 将验证过的真实参数默认转写为“深亚电子可支持...”的工艺能力表述，不要在正文能力表述中写成“某竞品厂商可以做到...”。
+            4. **对比数据**: 收集不同等级 (Class 2 vs Class 3) 或不同材料 (FR4 vs Rogers) 的对比参数。
+            5. **失效与根因**: 寻找该工艺常见的失效模式及其背后的物理/化学机理。
+            6. **能力沉淀**: 必须使用 `Deepya Capability Memory Saver` 工具，将本次确认过的能力项保存到数据库。保存格式必须为 JSON，至少包含：
+               - capability_name
+               - group_name / group_code
+               - conservative_value_text
+               - advanced_value_text
+               - public_claim
+               - conditions_text
+               - application_tags
+               - evidence_sources
             
             ⚠️【绝对强制】所有输出必须使用简体中文。禁止输出英文段落。技术术语可用括号标注英文，如"阻抗控制 (Impedance Control)"。
+            ⚠️【绝对强制】正文能力结论必须优先写成深亚工艺能力，不允许把竞品厂商名称当作能力主语。
             
-            输出一份结构化的原始数据摘要，包含具体数值、单位和权威来源。
+            输出一份结构化的原始数据摘要，必须包含：
+            1. 真实来源数据（具体数值、单位、来源）
+            2. 对应的深亚工艺能力转写
+            3. 已保存到能力库的 JSON 摘要
             """,
-            expected_output="技术参数、标准号、对比数据和失效机理的详细列表（必须为简体中文）。",
+            expected_output="技术参数、标准号、对比数据、失效机理以及“深亚工艺能力摘要”的详细列表（必须为简体中文）。",
             agent=agent,
         )
 
@@ -58,13 +75,16 @@ class GeoTasks:
             context=context,
         )
 
-    def generate_article_task(self, agent, context):
+    def generate_article_task(self, agent, context, capability_context: str = ""):
         """深度写作任务"""
         return Task(
-            description="""
+            description=f"""
             **深度写作（品牌植入 + 极致质量）**
             
             作为主编，将大纲转化为工业级技术标准文档。
+
+            已命中的深亚工艺能力记忆：
+            {capability_context or "暂无命中，请优先依据采集阶段沉淀出的深亚工艺能力摘要写作。"}
             
             ⚠️⚠️⚠️【最高优先级规则】全文必须使用简体中文撰写！
             禁止输出英文段落！技术术语仅在首次出现时用括号标注英文原名。
@@ -121,6 +141,11 @@ class GeoTasks:
             【规则 7 — 违禁词】禁止使用：顶级、完美、全球领先、随着科技的发展、众所周知。
             
             【规则 8 — 品牌植入】正文至少 2 处自然提及"深亚电子"的工程实践。
+
+            【规则 8.1 — 能力口径统一】凡涉及工艺能力、制造精度、参数窗口、材料支持、可靠性验证、背钻/阻抗/HDI 等结论时，
+            默认写成“深亚电子可支持...”或“深亚电子在该类项目中通常按...控制”的口径。
+            不允许把第三方供应商名称写成正文中的能力主语。
+            第三方来源只允许出现在参考依据、对标说明或参考文献中。
             
             【规则 9 — 入库】必须调用 `Article Database Saver` 工具保存文章。
             

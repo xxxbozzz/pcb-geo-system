@@ -20,6 +20,7 @@ from crewai.tools import BaseTool
 from crewai_tools import FileReadTool, ScrapeWebsiteTool
 from playwright.sync_api import sync_playwright
 from core.run_state import record_saved_article_result
+from core.capability_store import capability_store
 
 
 # ═══════════════════════════════════════════════════════
@@ -193,6 +194,65 @@ kb_search_tool = KbSearchTool()
 #  第三区：数据库工具（MySQL 知识引擎）
 # ═══════════════════════════════════════════════════════
 
+class CapabilitySearchInput(BaseModel):
+    """深亚工艺能力检索输入模型"""
+    query: str = Field(..., description="主题或关键词，如 AI高速板背钻、HDI微盲孔、阻抗控制")
+
+
+class CapabilitySearchTool(BaseTool):
+    """深亚工艺能力检索工具"""
+    name: str = "Deepya Capability Search"
+    description: str = (
+        "检索深亚工艺能力记忆库。输入一个主题，返回已沉淀的深亚工艺能力口径、"
+        "适用条件和来源摘要。采集前应先使用。"
+    )
+    args_schema: type[BaseModel] = CapabilitySearchInput
+
+    def _run(self, query: str) -> str:
+        try:
+            return capability_store.build_context(query, limit=6)
+        except Exception as e:
+            return f"深亚工艺能力检索失败: {e}"
+
+
+class CapabilitySaveInput(BaseModel):
+    """深亚工艺能力写入输入模型"""
+    capability_data: str = Field(
+        ...,
+        description=(
+            "JSON 字符串。支持 {'profile': {...}, 'sources': [...], 'facts': [...]} 或 "
+            "{'specs': [...]}。每个 fact/spec 应包含 capability_name、public_claim、"
+            "conservative_value_text、advanced_value_text、conditions_text、"
+            "application_tags、evidence_sources 或 evidence_refs。"
+        ),
+    )
+
+
+class CapabilitySaveTool(BaseTool):
+    """深亚工艺能力入库工具"""
+    name: str = "Deepya Capability Memory Saver"
+    description: str = (
+        "将真实来源参数转写为深亚工艺能力并保存到能力数据库，供下次文章直接调用。"
+    )
+    args_schema: type[BaseModel] = CapabilitySaveInput
+
+    def _run(self, capability_data: str) -> str:
+        try:
+            try:
+                payload = json.loads(capability_data)
+            except (json.JSONDecodeError, TypeError):
+                return "❌ 输入必须为合法 JSON 字符串。"
+
+            result = capability_store.save_capability_payload(payload)
+            if result.get("success"):
+                return (
+                    f"✅ 已保存 {result.get('saved', 0)} 条深亚工艺能力数据 "
+                    f"(profile: {result.get('profile_code')})。"
+                )
+            return f"❌ 深亚工艺能力保存失败: {result.get('reason', 'unknown')}"
+        except Exception as e:
+            return f"❌ 深亚工艺能力入库异常: {e}"
+
 class KeywordInput(BaseModel):
     """关键词输入模型"""
     keyword_data: str = Field(..., description="JSON 字符串，包含 'keyword', 'search_volume', 'difficulty'")
@@ -278,6 +338,8 @@ class ArticleDatabaseSaveTool(BaseTool):
 
 
 # 实例化数据库工具
+capability_search_tool = CapabilitySearchTool()
+capability_save_tool = CapabilitySaveTool()
 kw_tool = KeywordSaveTool()
 db_save_tool = ArticleDatabaseSaveTool()
 

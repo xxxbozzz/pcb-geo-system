@@ -44,6 +44,7 @@ from core.auto_fixer import AutoFixer
 from core.linker import AutoLinker
 from core.budget import tracker
 from core.build_info import format_build_label
+from core.capability_store import capability_store
 from core.run_state import (
     clear_current_run_id,
     clear_saved_article_result,
@@ -249,9 +250,12 @@ def generate_article(agents: GeoAgents, tasks: GeoTasks, keyword: str):
     templater = agents.templater_agent(llm)
     generator = agents.generator_agent(llm)
 
-    t_collect = tasks.collect_data_task(collector, keyword)
+    capability_context = capability_store.build_context(keyword, limit=5)
+    log.info(f"🧠 深亚工艺能力上下文已加载: {keyword}")
+
+    t_collect = tasks.collect_data_task(collector, keyword, capability_context=capability_context)
     t_structure = tasks.structure_content_task(templater, context=[t_collect])
-    t_write = tasks.generate_article_task(generator, context=[t_structure])
+    t_write = tasks.generate_article_task(generator, context=[t_structure], capability_context=capability_context)
 
     crew = Crew(
         agents=[collector, templater, generator],
@@ -487,6 +491,10 @@ def main():
     """主循环 — 增量热点驱动生产模式"""
     log.info("GEO 知识引擎 v4.0 启动（增量模式）")
     log.info(f"   构建版本: {format_build_label()}")
+    if capability_store.ensure_seed_data():
+        log.info("   深亚工艺能力仓库: 已就绪")
+    else:
+        log.warning("   深亚工艺能力仓库: 初始化失败，将回退为本地 JSON 上下文")
     log.info(
         f"   基准文章量: {MAX_ARTICLES} 篇 | "
         f"日真空词产能: {DAILY_GAP_ARTICLES} 篇 | "

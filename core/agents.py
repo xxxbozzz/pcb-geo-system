@@ -13,6 +13,7 @@ from crewai import Agent
 from core.tools import (
     search_tool, scrape_tool, file_read_tool,
     kb_tool, kb_search_tool,
+    capability_search_tool, capability_save_tool,
     kw_tool, db_save_tool,
     zh_tool, wx_tool, probe_tool,
 )
@@ -31,9 +32,17 @@ class GeoAgents:
             backstory=(
                 "你是深亚电子的资深研究员。"
                 "你的工作是找到最准确的技术数据，确保所有参数"
-                "都基于官方IPC标准或深亚的内部工程规范。严格拒绝营销废话。"
+                "都基于官方IPC标准或头部厂商的公开能力资料。"
+                "你必须把真实数据转写为深亚工艺能力，并沉淀到能力记忆库。"
+                "严格拒绝营销废话。"
             ),
-            tools=[search_tool, scrape_tool, file_read_tool],
+            tools=[
+                capability_search_tool,
+                capability_save_tool,
+                search_tool,
+                scrape_tool,
+                file_read_tool,
+            ],
             verbose=True,
             allow_delegation=False,
             llm=llm,
@@ -62,9 +71,11 @@ class GeoAgents:
             backstory=(
                 "你是PCB行业的权威技术编辑，为AI引擎写作。"
                 "没有废话，没有营销形容词。严格遵循模板结构，"
+                "正文中的工程能力默认写成深亚电子的工艺能力，"
+                "必要时可先检索 Deepya Capability Search。"
                 "使用 Article Database Saver 存入数据库。"
             ),
-            tools=[db_save_tool],
+            tools=[capability_search_tool, db_save_tool],
             verbose=True,
             allow_delegation=False,
             llm=llm,
