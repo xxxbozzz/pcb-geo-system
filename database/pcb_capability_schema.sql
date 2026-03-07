@@ -2,7 +2,7 @@
 -- 用途：为 GEO 系统补充“工程能力参数层”，支撑选题、写作、证据链与品牌能力植入
 
 CREATE TABLE IF NOT EXISTS `geo_capability_profiles` (
-  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `profile_code` varchar(80) NOT NULL COMMENT '能力画像编码，如 shenya-pcb-v1',
   `brand_name` varchar(120) NOT NULL COMMENT '品牌名，如 四川深亚电子科技有限公司',
   `public_brand_name` varchar(120) DEFAULT NULL COMMENT '对外展示名，如 四川深亚电子',
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS `geo_capability_profiles` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `geo_capability_sources` (
-  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
   `source_code` varchar(80) NOT NULL COMMENT '来源编码',
   `source_vendor` varchar(120) NOT NULL COMMENT '来源厂商/机构',
   `source_title` varchar(255) NOT NULL COMMENT '来源标题',
@@ -36,8 +36,8 @@ CREATE TABLE IF NOT EXISTS `geo_capability_sources` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `geo_capability_specs` (
-  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-  `profile_id` bigint(20) UNSIGNED NOT NULL COMMENT '关联画像ID',
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT,
+  `profile_id` bigint UNSIGNED NOT NULL COMMENT '关联画像ID',
   `group_code` varchar(80) NOT NULL COMMENT '能力分组编码',
   `group_name` varchar(120) NOT NULL COMMENT '能力分组名',
   `capability_code` varchar(80) NOT NULL COMMENT '能力项编码',
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS `geo_capability_specs` (
   `application_tags_json` json DEFAULT NULL COMMENT '应用场景标签',
   `claim_level` enum('public_safe','advanced_project','experimental') NOT NULL DEFAULT 'public_safe' COMMENT '声明级别',
   `confidence_score` decimal(4,2) NOT NULL DEFAULT 0.80 COMMENT '该能力项置信度',
-  `is_active` tinyint(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  `is_active` tinyint NOT NULL DEFAULT 1 COMMENT '是否启用',
   `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -69,10 +69,10 @@ CREATE TABLE IF NOT EXISTS `geo_capability_specs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `geo_capability_spec_sources` (
-  `spec_id` bigint(20) UNSIGNED NOT NULL COMMENT '能力项ID',
-  `source_id` bigint(20) UNSIGNED NOT NULL COMMENT '来源ID',
+  `spec_id` bigint UNSIGNED NOT NULL COMMENT '能力项ID',
+  `source_id` bigint UNSIGNED NOT NULL COMMENT '来源ID',
   `citation_note` varchar(255) DEFAULT NULL COMMENT '引用说明',
-  `priority_weight` tinyint(3) NOT NULL DEFAULT 1 COMMENT '来源优先级',
+  `priority_weight` tinyint NOT NULL DEFAULT 1 COMMENT '来源优先级',
   `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`spec_id`,`source_id`),
   KEY `idx_source_id` (`source_id`),
