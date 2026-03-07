@@ -230,6 +230,11 @@ class CapabilityStore:
         if not cnx:
             return {"success": False, "saved": 0, "reason": "db_unavailable"}
 
+        try:
+            cnx.raise_on_warnings = False
+        except Exception:
+            pass
+
         cursor = cnx.cursor()
         try:
             profile = self._prepare_profile(payload.get("profile") or {})
