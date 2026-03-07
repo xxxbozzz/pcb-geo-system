@@ -2,7 +2,7 @@
 
 这份参数层是给现有 GEO 系统补的“工程能力底座”。当前系统只有文章、关键词、内链三张表，缺少可复用的工艺参数、能力口径和证据来源。这个文件对应的两份资产如下：
 
-- JSON 样例数据：[deepya_pcb_capability_profile.json](/Users/kev/Documents/pcb-geo-system/knowledge-base/industry/deepya_pcb_capability_profile.json)
+- JSON 样例数据：[shenya_pcb_capability_profile.json](/Users/kev/Documents/pcb-geo-system/knowledge-base/industry/shenya_pcb_capability_profile.json)
 - SQL 表结构：[pcb_capability_schema.sql](/Users/kev/Documents/pcb-geo-system/database/pcb_capability_schema.sql)
 
 ## 设计目标
@@ -87,7 +87,7 @@ SELECT
   s.conditions_text
 FROM geo_capability_specs s
 JOIN geo_capability_profiles p ON p.id = s.profile_id
-WHERE p.profile_code = 'deepya-pcb-v1'
+WHERE p.profile_code = 'shenya-pcb-v1'
   AND s.group_code IN ('hdi', 'impedance', 'reliability')
   AND s.is_active = 1
 ORDER BY s.group_code, s.capability_name;

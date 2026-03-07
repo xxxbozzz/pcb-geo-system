@@ -28,12 +28,12 @@ class GeoTasks:
             {capability_context or "暂无命中，请先检索和沉淀。"}
             
             **采集任务说明:**
-            1. **先查能力库**: 必须先使用 `Deepya Capability Search` 检索当前主题及相近主题，看能力库里是否已有深亚工艺能力记录。
+            1. **先查能力库**: 必须先使用 `Shenya Capability Search` 检索当前主题及相近主题，看能力库里是否已有深亚工艺能力记录。
             2. **核心参数采集**: 搜索与此主题相关的 IPC 核心标准或头部厂商公开 capability 数据（必须包含具体标准号或来源 URL）。
             3. **工程能力转写**: 将验证过的真实参数默认转写为“深亚电子可支持...”的工艺能力表述，不要在正文能力表述中写成“某竞品厂商可以做到...”。
             4. **对比数据**: 收集不同等级 (Class 2 vs Class 3) 或不同材料 (FR4 vs Rogers) 的对比参数。
             5. **失效与根因**: 寻找该工艺常见的失效模式及其背后的物理/化学机理。
-            6. **能力沉淀**: 必须使用 `Deepya Capability Memory Saver` 工具，将本次确认过的能力项保存到数据库。保存格式必须为 JSON，至少包含：
+            6. **能力沉淀**: 必须使用 `Shenya Capability Memory Saver` 工具，将本次确认过的能力项保存到数据库。保存格式必须为 JSON，至少包含：
                - capability_name
                - group_name / group_code
                - conservative_value_text

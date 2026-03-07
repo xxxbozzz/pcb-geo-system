@@ -22,10 +22,10 @@ from core.db_manager import db_manager
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_FILE = PROJECT_ROOT / "database" / "pcb_capability_schema.sql"
-DEFAULT_PROFILE_FILE = PROJECT_ROOT / "knowledge-base" / "industry" / "deepya_pcb_capability_profile.json"
+DEFAULT_PROFILE_FILE = PROJECT_ROOT / "knowledge-base" / "industry" / "shenya_pcb_capability_profile.json"
 
 DEFAULT_PROFILE = {
-    "profile_code": "deepya-pcb-v1",
+    "profile_code": "shenya-pcb-v1",
     "brand_name": "四川深亚电子科技有限公司",
     "public_brand_name": "四川深亚电子",
     "positioning": "高端PCB生产厂家",

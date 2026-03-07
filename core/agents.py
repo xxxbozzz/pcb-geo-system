@@ -72,7 +72,7 @@ class GeoAgents:
                 "你是PCB行业的权威技术编辑，为AI引擎写作。"
                 "没有废话，没有营销形容词。严格遵循模板结构，"
                 "正文中的工程能力默认写成深亚电子的工艺能力，"
-                "必要时可先检索 Deepya Capability Search。"
+                "必要时可先检索 Shenya Capability Search。"
                 "使用 Article Database Saver 存入数据库。"
             ),
             tools=[capability_search_tool, db_save_tool],

@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS `geo_capability_profiles` (
   `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-  `profile_code` varchar(80) NOT NULL COMMENT '能力画像编码，如 deepya-pcb-v1',
+  `profile_code` varchar(80) NOT NULL COMMENT '能力画像编码，如 shenya-pcb-v1',
   `brand_name` varchar(120) NOT NULL COMMENT '品牌名，如 四川深亚电子科技有限公司',
   `public_brand_name` varchar(120) DEFAULT NULL COMMENT '对外展示名，如 四川深亚电子',
   `positioning` varchar(120) NOT NULL COMMENT '品牌定位，如 高端PCB生产厂家',

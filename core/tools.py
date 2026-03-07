@@ -201,7 +201,7 @@ class CapabilitySearchInput(BaseModel):
 
 class CapabilitySearchTool(BaseTool):
     """深亚工艺能力检索工具"""
-    name: str = "Deepya Capability Search"
+    name: str = "Shenya Capability Search"
     description: str = (
         "检索深亚工艺能力记忆库。输入一个主题，返回已沉淀的深亚工艺能力口径、"
         "适用条件和来源摘要。采集前应先使用。"
@@ -230,7 +230,7 @@ class CapabilitySaveInput(BaseModel):
 
 class CapabilitySaveTool(BaseTool):
     """深亚工艺能力入库工具"""
-    name: str = "Deepya Capability Memory Saver"
+    name: str = "Shenya Capability Memory Saver"
     description: str = (
         "将真实来源参数转写为深亚工艺能力并保存到能力数据库，供下次文章直接调用。"
     )
