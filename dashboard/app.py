@@ -5,6 +5,7 @@ PCB GEO 知识引擎 — 控制台 v4.0
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import mysql.connector
 import os
@@ -116,6 +117,7 @@ if st.sidebar.button("刷新数据"):
 st.sidebar.markdown("---")
 st.sidebar.caption("© 2026 深亚电子 · GEO Engine v4.0")
 st.sidebar.caption(f"Build: {format_build_label()}")
+auto_refresh_overview = st.sidebar.checkbox("总览自动刷新", value=True)
 
 
 # ═══════════════════════════════════════════
@@ -123,7 +125,20 @@ st.sidebar.caption(f"Build: {format_build_label()}")
 # ═══════════════════════════════════════════
 
 if page == "总览":
+    if auto_refresh_overview:
+        components.html(
+            """
+            <script>
+            setTimeout(function () {
+              window.parent.location.reload();
+            }, 60000);
+            </script>
+            """,
+            height=0,
+        )
+
     st.markdown('<div class="page-title">数据总览</div>', unsafe_allow_html=True)
+    st.caption(f"页面刷新时间：{time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # ── KPI 卡片 ──
     total = query_value("SELECT COUNT(*) FROM geo_articles")
@@ -131,15 +146,20 @@ if page == "总览":
     pending_kw = query_value("SELECT COUNT(*) FROM geo_keywords WHERE target_article_id IS NULL")
     avg_score = query_value("SELECT ROUND(AVG(quality_score),1) FROM geo_articles WHERE quality_score > 0")
     links = query_value("SELECT COUNT(*) FROM geo_links")
+    latest_article_time = query_value(
+        "SELECT DATE_FORMAT(MAX(created_at), '%Y-%m-%d %H:%i:%s') FROM geo_articles",
+        default="--",
+    )
 
     st.markdown('<div class="kpi-row">', unsafe_allow_html=True)
-    cols = st.columns(5)
+    cols = st.columns(6)
     kpi_data = [
         ("file-text", total, "文章总数"),
         ("check-circle", passed, "质检通过"),
         ("clock", pending_kw, "待处理词"),
         ("target", avg_score, "平均质量分"),
         ("link", links, "内链关系"),
+        ("calendar", latest_article_time, "最新入库时间"),
     ]
     for col, (ic, val, label) in zip(cols, kpi_data):
         with col:
