@@ -1,8 +1,11 @@
+alembic
 crewai
 crewai-tools
+fastapi
 langchain-openai
 python-dotenv
 mysql-connector-python
+pydantic-settings
 chromadb
 duckduckgo-search
 playwright
@@ -14,3 +17,4 @@ pyvis
 markdown
 requests
 beautifulsoup4
+uvicorn

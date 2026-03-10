@@ -45,6 +45,7 @@ from core.linker import AutoLinker
 from core.budget import tracker
 from core.build_info import format_build_label
 from core.capability_store import capability_store
+from core.job_store import job_store
 from core.run_state import (
     clear_current_run_id,
     clear_saved_article_result,
@@ -118,7 +119,7 @@ def get_pending_keywords(limit: int = 1) -> list:
     try:
         cursor = cnx.cursor(dictionary=True)
         cursor.execute(
-            "SELECT id, keyword FROM geo_keywords "
+            "SELECT id, keyword, search_volume FROM geo_keywords "
             "WHERE target_article_id IS NULL ORDER BY id ASC LIMIT %s",
             (limit,),
         )
@@ -136,7 +137,7 @@ def get_pending_gap_keywords(limit: int = 5) -> list:
     try:
         cursor = cnx.cursor(dictionary=True)
         cursor.execute(
-            "SELECT id, keyword FROM geo_keywords "
+            "SELECT id, keyword, search_volume FROM geo_keywords "
             "WHERE target_article_id IS NULL AND search_volume >= %s "
             "ORDER BY created_at ASC, id ASC LIMIT %s",
             (GEO_GAP_PRIORITY, limit),
@@ -265,10 +266,11 @@ def generate_article(agents: GeoAgents, tasks: GeoTasks, keyword: str):
     crew.kickoff()
 
 
-def quality_loop(article: dict) -> bool:
+def quality_loop(article: dict, job_run_id: int | None = None) -> dict:
     """
     质检→返修闭环，最多 MAX_REPAIR_ATTEMPTS 次。
-    返回 True=通过, False=放弃。
+    返回质检结果摘要：
+        {"passed": bool, "attempts": int, "final_score": int, "failed_checks": list[str]}
     """
     checker = QualityChecker()
     fixer = AutoFixer()
@@ -276,12 +278,30 @@ def quality_loop(article: dict) -> bool:
     article_id = article["id"]
     title = article["title"] or ""
     content = article["content_markdown"] or ""
+    last_failed: list[str] = []
+    last_score = 0
 
     for attempt in range(1, MAX_REPAIR_ATTEMPTS + 1):
+        step_id = job_store.start_step(
+            job_run_id,
+            "quality_check",
+            "质量检查",
+            attempt_no=attempt,
+            article_id=article_id,
+        )
+
         # ── 评分 ──
         score, report = checker.evaluate_article(title, content)
         failed = [k for k, v in report.items() if not v]
         passed = [k for k, v in report.items() if v]
+        last_failed = failed
+        last_score = score
+        detail = {
+            "score": score,
+            "passed_checks": passed,
+            "failed_checks": failed,
+            "threshold": PASS_THRESHOLD,
+        }
 
         log.info(
             f"📊 第 {attempt}/{MAX_REPAIR_ATTEMPTS} 次质检: {score}分 "
@@ -293,21 +313,74 @@ def quality_loop(article: dict) -> bool:
         # ── 通过 ──
         if score >= PASS_THRESHOLD:
             update_article(article_id, publish_status=1, quality_score=score)
+            job_store.finish_step(step_id, status="succeeded", article_id=article_id, detail=detail)
             log.info(f"🎉 质检通过！[{score}分] {title}")
-            return True
+            return {
+                "passed": True,
+                "attempts": attempt,
+                "final_score": score,
+                "failed_checks": failed,
+            }
 
         # ── 已达上限 ──
         if attempt >= MAX_REPAIR_ATTEMPTS:
+            job_store.finish_step(
+                step_id,
+                status="failed",
+                article_id=article_id,
+                error_message="quality_threshold_not_reached",
+                detail=detail,
+            )
             log.warning(f"💀 达到最大返修次数，放弃: [{score}分] {title}")
-            return False
+            return {
+                "passed": False,
+                "attempts": attempt,
+                "final_score": score,
+                "failed_checks": failed,
+            }
+
+        job_store.finish_step(
+            step_id,
+            status="failed",
+            article_id=article_id,
+            error_message="quality_threshold_not_reached",
+            detail=detail,
+        )
 
         # ── 生成返修指令 ──
         fix_prompt = fixer.generate_fix_prompt(content, report)
         if not fix_prompt:
+            repair_step_id = job_store.start_step(
+                job_run_id,
+                "repair",
+                "文章返修",
+                attempt_no=attempt,
+                article_id=article_id,
+                detail={"reason": "fix_prompt_unavailable", "score": score},
+            )
+            job_store.finish_step(
+                repair_step_id,
+                status="failed",
+                article_id=article_id,
+                error_message="fix_prompt_unavailable",
+            )
             log.warning("AutoFixer 未生成返修指令，跳过")
-            return False
+            return {
+                "passed": False,
+                "attempts": attempt,
+                "final_score": score,
+                "failed_checks": failed,
+            }
 
         # ── LLM 执行返修 ──
+        repair_step_id = job_store.start_step(
+            job_run_id,
+            "repair",
+            "文章返修",
+            attempt_no=attempt,
+            article_id=article_id,
+            detail={"reason": "quality_threshold_not_reached", "score": score},
+        )
         log.info(f"🔧 第 {attempt} 次返修...")
         try:
             result = llm.invoke(fix_prompt)
@@ -320,6 +393,13 @@ def quality_loop(article: dict) -> bool:
             tracker.record(in_tok, out_tok, label=f"repair:{title[:20]}")
 
             if len(new_content.strip()) < 500:
+                job_store.finish_step(
+                    repair_step_id,
+                    status="failed",
+                    article_id=article_id,
+                    error_message="repair_result_too_short",
+                    detail={"result_length": len(new_content)},
+                )
                 log.warning(f"返修结果过短 ({len(new_content)} 字符)，跳过")
                 continue
 
@@ -327,13 +407,36 @@ def quality_loop(article: dict) -> bool:
             content_hash = hashlib.md5(new_content.encode("utf-8")).hexdigest()
             update_article(article_id, content_markdown=new_content, content_hash=content_hash)
             content = new_content
+            job_store.finish_step(
+                repair_step_id,
+                status="succeeded",
+                article_id=article_id,
+                detail={"result_length": len(new_content), "prompt_tokens": in_tok, "completion_tokens": out_tok},
+            )
             log.info(f"✅ 返修完成，{len(new_content)} 字符")
 
         except Exception as e:
+            job_store.finish_step(
+                repair_step_id,
+                status="failed",
+                article_id=article_id,
+                error_message=str(e),
+            )
             log.error(f"LLM 返修失败: {e}")
             continue
 
-    return False
+    return {
+        "passed": False,
+        "attempts": MAX_REPAIR_ATTEMPTS,
+        "final_score": last_score,
+        "failed_checks": last_failed,
+    }
+
+
+def detect_trigger_mode(kw_row: dict) -> str:
+    """根据关键词来源推断触发方式"""
+    search_volume = int(kw_row.get("search_volume") or 0)
+    return "geo_gap_auto" if search_volume >= GEO_GAP_PRIORITY else "keyword_auto"
 
 
 def process_keyword(agents: GeoAgents, tasks: GeoTasks, kw_row: dict) -> bool:
@@ -341,14 +444,36 @@ def process_keyword(agents: GeoAgents, tasks: GeoTasks, kw_row: dict) -> bool:
     keyword = kw_row["keyword"]
     kw_id = kw_row["id"]
     run_id = f"kw-{kw_id}-{int(time.time() * 1000)}"
+    trigger_mode = detect_trigger_mode(kw_row)
+    job_run_id = job_store.start_run(
+        run_uid=run_id,
+        keyword_id=int(kw_id),
+        keyword=keyword,
+        trigger_mode=trigger_mode,
+        detail={"search_volume": int(kw_row.get("search_volume") or 0)},
+    )
     log.info(f"⚡ 开始处理: {keyword}")
 
     clear_saved_article_result(run_id)
     set_current_run_id(run_id)
+    generate_step_id = job_store.start_step(
+        job_run_id,
+        "generate",
+        "采集-结构化-写作",
+        detail={"keyword": keyword, "trigger_mode": trigger_mode},
+    )
     try:
         generate_article(agents, tasks, keyword)
     except Exception as e:
         log.error(f"生成失败 [{keyword}]: {e}")
+        job_store.finish_step(generate_step_id, status="failed", error_message=str(e))
+        job_store.update_run(
+            job_run_id,
+            status="failed",
+            current_step="generate",
+            error_message=str(e),
+            finished=True,
+        )
         return False
     finally:
         clear_current_run_id()
@@ -356,21 +481,77 @@ def process_keyword(agents: GeoAgents, tasks: GeoTasks, kw_row: dict) -> bool:
     save_result = pop_saved_article_result(run_id)
     if not save_result:
         log.error(f"生成结束后未捕获入库结果: {keyword}")
+        job_store.finish_step(
+            generate_step_id,
+            status="failed",
+            error_message="missing_article_save_result",
+        )
+        job_store.update_run(
+            job_run_id,
+            status="failed",
+            current_step="generate",
+            error_message="missing_article_save_result",
+            finished=True,
+        )
         return False
 
     if not save_result.get("success"):
         reason = save_result.get("reason", "unknown")
         log.error(f"文章未成功入库 [{keyword}]: {reason}")
+        job_store.finish_step(
+            generate_step_id,
+            status="failed",
+            error_message=reason,
+            detail={"save_result": save_result},
+        )
+        job_store.update_run(
+            job_run_id,
+            status="failed",
+            current_step="generate",
+            error_message=reason,
+            detail={"save_result": save_result},
+            finished=True,
+        )
         return False
 
     article_id = save_result.get("article_id")
     if not article_id:
         log.error(f"文章入库缺少 article_id: {keyword}")
+        job_store.finish_step(
+            generate_step_id,
+            status="failed",
+            error_message="missing_article_id",
+            detail={"save_result": save_result},
+        )
+        job_store.update_run(
+            job_run_id,
+            status="failed",
+            current_step="generate",
+            error_message="missing_article_id",
+            detail={"save_result": save_result},
+            finished=True,
+        )
         return False
+
+    job_store.finish_step(
+        generate_step_id,
+        status="succeeded",
+        article_id=int(article_id),
+        detail={"save_result": save_result},
+    )
+    job_store.update_run(job_run_id, article_id=int(article_id), current_step="quality")
 
     article = get_article(int(article_id))
     if not article:
         log.error(f"未找到已入库文章: {keyword} -> #{article_id}")
+        job_store.update_run(
+            job_run_id,
+            status="failed",
+            article_id=int(article_id),
+            current_step="quality",
+            error_message="article_not_found_after_save",
+            finished=True,
+        )
         return False
 
     log.info(
@@ -378,26 +559,103 @@ def process_keyword(agents: GeoAgents, tasks: GeoTasks, kw_row: dict) -> bool:
         f"{'(更新已有文章)' if save_result.get('action') == 'updated' else '(新建文章)'}"
     )
 
-    passed = quality_loop(article)
+    quality_result = quality_loop(article, job_run_id=job_run_id)
+    passed = bool(quality_result.get("passed"))
+    final_score = int(quality_result.get("final_score") or 0)
+    retry_count = max(0, int(quality_result.get("attempts") or 1) - 1)
+    had_post_errors = False
 
     # 质检通过 → 导出 HTML → 自动内链
     if passed:
         # 导出 HTML 到同步目录
+        export_step_id = job_store.start_step(
+            job_run_id,
+            "export_html",
+            "导出HTML",
+            article_id=article["id"],
+        )
         try:
             from core.exporter import WebsiteExporter
             exporter = WebsiteExporter()
             exporter.export_article(article["id"])
+            job_store.finish_step(export_step_id, status="succeeded", article_id=article["id"])
         except Exception as e:
             log.error(f"HTML 导出失败: {e}")
+            had_post_errors = True
+            job_store.finish_step(
+                export_step_id,
+                status="failed",
+                article_id=article["id"],
+                error_message=str(e),
+            )
 
+        link_step_id = job_store.start_step(
+            job_run_id,
+            "auto_link",
+            "自动内链",
+            article_id=article["id"],
+        )
         try:
             linker = AutoLinker()
             result = linker.link_article(article["id"])
             log.info(f"🔗 内链: 出链 {result['outgoing']}, 入链 {result['incoming']}")
+            job_store.finish_step(
+                link_step_id,
+                status="succeeded",
+                article_id=article["id"],
+                detail=result,
+            )
         except Exception as e:
             log.error(f"内链失败: {e}")
+            had_post_errors = True
+            job_store.finish_step(
+                link_step_id,
+                status="failed",
+                article_id=article["id"],
+                error_message=str(e),
+            )
 
-    mark_keyword_done(kw_id, article["id"])
+    bind_step_id = job_store.start_step(
+        job_run_id,
+        "bind_keyword",
+        "关键词绑定文章",
+        article_id=article["id"],
+    )
+    try:
+        mark_keyword_done(kw_id, article["id"])
+        job_store.finish_step(
+            bind_step_id,
+            status="succeeded",
+            article_id=article["id"],
+            detail={"keyword_id": int(kw_id), "article_id": int(article["id"])},
+        )
+    except Exception as e:
+        log.error(f"关键词绑定失败: {e}")
+        had_post_errors = True
+        job_store.finish_step(
+            bind_step_id,
+            status="failed",
+            article_id=article["id"],
+            error_message=str(e),
+        )
+
+    run_status = "succeeded" if passed and not had_post_errors else "partial" if passed else "failed"
+    run_error = None if run_status == "succeeded" else "post_process_failed" if passed else "quality_threshold_not_reached"
+    job_store.update_run(
+        job_run_id,
+        status=run_status,
+        article_id=int(article["id"]),
+        current_step="done",
+        retry_count=retry_count,
+        error_message=run_error,
+        detail={
+            "save_action": save_result.get("action"),
+            "quality_passed": passed,
+            "quality_score": final_score,
+            "failed_checks": quality_result.get("failed_checks") or [],
+        },
+        finished=True,
+    )
     return passed
 
 
@@ -491,6 +749,10 @@ def main():
     """主循环 — 增量热点驱动生产模式"""
     log.info("GEO 知识引擎 v4.0 启动（增量模式）")
     log.info(f"   构建版本: {format_build_label()}")
+    if job_store.ensure_schema():
+        log.info("   运行记录仓库: 已就绪")
+    else:
+        log.warning("   运行记录仓库: 初始化失败，将仅保留日志追踪")
     if capability_store.ensure_seed_data():
         log.info("   深亚工艺能力仓库: 已就绪")
     else:
