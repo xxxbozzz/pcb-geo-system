@@ -31,6 +31,8 @@
 uvicorn backend.app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
+容器化部署已约定通过 `docker-compose.yml` 中的 `backend` 服务启动，对外端口为 `8001`。
+
 ## 当前可用接口
 
 - `GET /`
