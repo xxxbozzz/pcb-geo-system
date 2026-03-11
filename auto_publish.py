@@ -9,7 +9,10 @@
     DB_HOST=localhost python auto_publish.py --live     # 直接发布（谨慎）
 """
 
-import os, sys, time, logging, argparse
+import argparse
+import logging
+import os
+import time
 
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 os.environ.setdefault("MYSQL_CONNECTOR_PYTHON_TELEMETRY", "0")
@@ -17,50 +20,25 @@ os.environ.setdefault("MYSQL_CONNECTOR_PYTHON_TELEMETRY", "0")
 from dotenv import load_dotenv
 load_dotenv()
 
-import mysql.connector
-from core.zhihu_publisher import ZhihuPublisher
-from core.wechat_publisher import WeChatPublisher
+from backend.app.db.mysql import database
+from backend.app.services.publications_service import publications_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("Publisher")
 
 
-def get_db():
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        user=os.getenv("DB_USER", "root"),
-        password=os.getenv("DB_PASSWORD", "root_password"),
-        database=os.getenv("DB_NAME", "geo_knowledge_engine"),
-        connection_timeout=5,
-    )
-
-
 def get_unpublished_articles(limit: int = 5) -> list:
     """获取已通过质检但未外发的文章"""
-    cnx = get_db()
-    cursor = cnx.cursor(dictionary=True)
-    # publish_status: 1=质检通过, 2=已外发
-    cursor.execute(
-        "SELECT id, title, content_markdown, slug "
-        "FROM geo_articles "
-        "WHERE publish_status = 1 AND quality_score >= 80 "
-        "ORDER BY created_at ASC LIMIT %s",
-        (limit,)
+    return database.fetch_all(
+        """
+        SELECT id, title
+        FROM geo_articles
+        WHERE publish_status = 1 AND quality_score >= 80
+        ORDER BY created_at ASC
+        LIMIT %s
+        """,
+        params=(limit,),
     )
-    articles = cursor.fetchall()
-    cursor.close()
-    cnx.close()
-    return articles
-
-
-def mark_published(article_id: int):
-    """标记为已外发"""
-    cnx = get_db()
-    cursor = cnx.cursor()
-    cursor.execute("UPDATE geo_articles SET publish_status = 2 WHERE id = %s", (article_id,))
-    cnx.commit()
-    cursor.close()
-    cnx.close()
 
 
 def main():
@@ -83,41 +61,30 @@ def main():
 
     log.info(f"待发布: {len(articles)} 篇")
 
-    # 初始化发布器
-    zhihu = ZhihuPublisher() if args.platform in ("all", "zhihu") else None
-    wechat = WeChatPublisher() if args.platform in ("all", "wechat") else None
+    platforms = ["zhihu", "wechat"] if args.platform == "all" else [args.platform]
 
     for i, article in enumerate(articles, 1):
         title = article["title"]
-        content = article["content_markdown"]
         log.info(f"\n[{i}/{len(articles)}] {title[:40]}...")
+        publish_result = publications_service.publish_article(
+            int(article["id"]),
+            platforms=platforms,
+            go_live=args.live,
+            trigger_mode="auto",
+        )
 
-        success_any = False
+        for platform_result in publish_result.get("results", []):
+            log.info(
+                "  %s [%s]: %s",
+                platform_result.get("platform"),
+                platform_result.get("status"),
+                platform_result.get("message"),
+            )
 
-        # 知乎
-        if zhihu and zhihu.ready:
-            if args.live:
-                result = zhihu.publish_and_go_live(title, content)
-            else:
-                result = zhihu.publish(title, content, topic_tags=["PCB", "电子制造"])
-            log.info(f"  知乎: {result['message']}")
-            if result["success"]:
-                success_any = True
-
-        # 微信
-        if wechat and wechat.ready:
-            if args.live:
-                result = wechat.publish_and_go_live(title, content)
-            else:
-                result = wechat.publish(title, content)
-            log.info(f"  微信: {result['message']}")
-            if result["success"]:
-                success_any = True
-
-        # 标记已发布
-        if success_any:
-            mark_published(article["id"])
-            log.info(f"  ✅ 已标记为已外发")
+        if publish_result.get("success"):
+            log.info("  ✅ 已记录平台发布审计")
+        else:
+            log.warning("  ⚠️ 未达到目标发布状态: %s", publish_result.get("message"))
 
         time.sleep(5)  # 间隔 5 秒
 

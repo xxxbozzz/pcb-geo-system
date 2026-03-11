@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ArticleSummaryItem(BaseModel):
@@ -59,3 +59,21 @@ class ArticleDetailPayload(BaseModel):
 
     article: ArticleDetailItem | None = None
     warning: str | None = None
+
+
+class ArticlePublishRequest(BaseModel):
+    """Request body for manual article publishing."""
+
+    platforms: list[str] = Field(default_factory=list)
+    go_live: bool = False
+
+    @field_validator("platforms")
+    @classmethod
+    def validate_platforms(cls, value: list[str]) -> list[str]:
+        allowed = {"zhihu", "wechat"}
+        cleaned = []
+        for item in value:
+            normalized = str(item).strip().lower()
+            if normalized in allowed and normalized not in cleaned:
+                cleaned.append(normalized)
+        return cleaned

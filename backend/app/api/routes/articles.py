@@ -2,7 +2,8 @@
 
 from fastapi import APIRouter, Query
 
-from backend.app.schemas.api import ApiResponse, ok_response
+from backend.app.schemas.api import ApiResponse, fail_response, ok_response
+from backend.app.schemas.articles import ArticlePublishRequest
 from backend.app.services.articles_service import articles_service
 
 
@@ -46,3 +47,46 @@ def get_article_detail(article_id: int) -> ApiResponse:
         message="article_detail_ready",
         data=articles_service.get_article_detail(article_id),
     )
+
+
+@router.post("/{article_id}/refix", response_model=ApiResponse)
+def refix_article(article_id: int) -> ApiResponse:
+    """Run backend-managed article refix flow."""
+    result = articles_service.refix_article(article_id)
+    if not result.get("success"):
+        return fail_response(
+            message=str(result.get("message") or "article_refix_failed"),
+            error_code=str(result.get("error_code") or "article_refix_failed"),
+            data=result,
+        )
+    return ok_response(message="article_refix_completed", data=result)
+
+
+@router.post("/{article_id}/recycle", response_model=ApiResponse)
+def recycle_article(article_id: int) -> ApiResponse:
+    """Recycle keyword bindings and delete the article."""
+    result = articles_service.recycle_article(article_id)
+    if not result.get("success"):
+        return fail_response(
+            message=str(result.get("message") or "article_recycle_failed"),
+            error_code=str(result.get("error_code") or "article_recycle_failed"),
+            data=result,
+        )
+    return ok_response(message="article_recycle_completed", data=result)
+
+
+@router.post("/{article_id}/publish", response_model=ApiResponse)
+def publish_article(article_id: int, payload: ArticlePublishRequest) -> ApiResponse:
+    """Publish an article to one or more external platforms."""
+    result = articles_service.publish_article(
+        article_id,
+        platforms=payload.platforms,
+        go_live=payload.go_live,
+    )
+    if not result.get("success"):
+        return fail_response(
+            message=str(result.get("message") or "article_publish_failed"),
+            error_code=str(result.get("error_code") or "article_publish_failed"),
+            data=result,
+        )
+    return ok_response(message="article_publish_completed", data=result)

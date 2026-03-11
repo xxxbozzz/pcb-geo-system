@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     db_name: str = "geo_knowledge_engine"
     db_pool_name: str = "geo_backend_pool"
     db_pool_size: int = 5
+    article_action_timeout_seconds: int = 120
+    publish_request_timeout_seconds: int = 20
+    llm_fix_max_tokens: int = 8000
 
     @property
     def sqlalchemy_database_url(self) -> str:

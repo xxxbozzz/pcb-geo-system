@@ -32,6 +32,7 @@ class ZhihuPublisher:
 
     def __init__(self, cookie_file: str = COOKIE_FILE):
         self.session = requests.Session()
+        self.request_timeout = float(os.getenv("GEO_PUBLISH_REQUEST_TIMEOUT", "20"))
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                           "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
@@ -79,18 +80,47 @@ class ZhihuPublisher:
         返回 {"success": bool, "url": str, "message": str}
         """
         if not self.ready:
-            return {"success": False, "url": "", "message": "Cookie 未就绪，请先运行登录脚本"}
+            return {
+                "success": False,
+                "status": "failed",
+                "url": "",
+                "external_id": None,
+                "external_url": None,
+                "message": "Cookie 未就绪，请先运行登录脚本",
+                "error_message": "cookie_not_ready",
+            }
 
         try:
             # 1. 创建草稿
-            resp = self.session.post(f"{API_BASE}/articles/drafts", json={})
+            resp = self.session.post(
+                f"{API_BASE}/articles/drafts",
+                json={},
+                timeout=self.request_timeout,
+            )
             if resp.status_code != 200:
-                return {"success": False, "url": "", "message": f"创建草稿失败: {resp.status_code} {resp.text[:200]}"}
+                return {
+                    "success": False,
+                    "status": "failed",
+                    "url": "",
+                    "external_id": None,
+                    "external_url": None,
+                    "message": f"创建草稿失败: {resp.status_code} {resp.text[:200]}",
+                    "error_message": f"draft_create_failed:{resp.status_code}",
+                }
 
             draft = resp.json()
             article_id = draft.get("id")
             if not article_id:
-                return {"success": False, "url": "", "message": f"草稿 ID 缺失: {draft}"}
+                return {
+                    "success": False,
+                    "status": "failed",
+                    "url": "",
+                    "external_id": None,
+                    "external_url": None,
+                    "message": f"草稿 ID 缺失: {draft}",
+                    "error_message": "draft_id_missing",
+                    "response_payload": draft,
+                }
 
             log.info(f"草稿创建成功: {article_id}")
 
@@ -104,12 +134,28 @@ class ZhihuPublisher:
             if topic_tags:
                 update_data["topics"] = [{"name": t} for t in topic_tags[:3]]
 
-            resp = self.session.put(f"{API_BASE}/articles/drafts/{article_id}", json=update_data)
+            resp = self.session.put(
+                f"{API_BASE}/articles/drafts/{article_id}",
+                json=update_data,
+                timeout=self.request_timeout,
+            )
             if resp.status_code not in (200, 204):
                 # 尝试备用端点
-                resp = self.session.patch(f"{API_BASE}/articles/{article_id}", json=update_data)
+                resp = self.session.patch(
+                    f"{API_BASE}/articles/{article_id}",
+                    json=update_data,
+                    timeout=self.request_timeout,
+                )
             if resp.status_code not in (200, 204):
-                return {"success": False, "url": "", "message": f"更新草稿失败: {resp.status_code} {resp.text[:200]}"}
+                return {
+                    "success": False,
+                    "status": "failed",
+                    "url": "",
+                    "external_id": str(article_id),
+                    "external_url": f"https://zhuanlan.zhihu.com/p/{article_id}",
+                    "message": f"更新草稿失败: {resp.status_code} {resp.text[:200]}",
+                    "error_message": f"draft_update_failed:{resp.status_code}",
+                }
 
             log.info(f"草稿内容已更新: {title[:30]}...")
 
@@ -120,14 +166,27 @@ class ZhihuPublisher:
             url = f"https://zhuanlan.zhihu.com/p/{article_id}"
             return {
                 "success": True,
+                "status": "draft_saved",
                 "url": url,
                 "article_id": article_id,
+                "external_id": str(article_id),
+                "external_url": url,
                 "message": f"已保存为知乎草稿（ID: {article_id}），请在知乎后台确认发布",
+                "error_message": None,
+                "response_payload": draft,
             }
 
         except Exception as e:
             log.error(f"知乎发布异常: {e}")
-            return {"success": False, "url": "", "message": str(e)}
+            return {
+                "success": False,
+                "status": "failed",
+                "url": "",
+                "external_id": None,
+                "external_url": None,
+                "message": str(e),
+                "error_message": str(e),
+            }
 
     def publish_and_go_live(self, title: str, content_md: str) -> dict:
         """直接发布（不仅保存草稿）"""
@@ -140,12 +199,22 @@ class ZhihuPublisher:
             resp = self.session.put(
                 f"{API_BASE}/articles/{article_id}/publish",
                 json={"column": None, "commentPermission": "anyone"},
+                timeout=self.request_timeout,
             )
             if resp.status_code == 200:
+                result["success"] = True
+                result["status"] = "published"
                 result["message"] = f"✅ 已发布到知乎: {result['url']}"
+                result["error_message"] = None
             else:
+                result["success"] = False
+                result["status"] = "draft_saved"
                 result["message"] = f"草稿已保存但发布失败: {resp.status_code}"
+                result["error_message"] = f"publish_failed:{resp.status_code}"
         except Exception as e:
+            result["success"] = False
+            result["status"] = "draft_saved"
             result["message"] = f"草稿已保存但发布异常: {e}"
+            result["error_message"] = str(e)
 
         return result

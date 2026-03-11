@@ -43,6 +43,7 @@ class WeChatPublisher:
     def __init__(self):
         self.app_id = os.getenv("WECHAT_APP_ID", "")
         self.app_secret = os.getenv("WECHAT_APP_SECRET", "")
+        self.request_timeout = float(os.getenv("GEO_PUBLISH_REQUEST_TIMEOUT", "20"))
         self._token = None
         self._token_expires = 0
 
@@ -61,11 +62,15 @@ class WeChatPublisher:
         if self._token and now < self._token_expires:
             return self._token
 
-        resp = requests.get(TOKEN_URL, params={
-            "grant_type": "client_credential",
-            "appid": self.app_id,
-            "secret": self.app_secret,
-        })
+        resp = requests.get(
+            TOKEN_URL,
+            params={
+                "grant_type": "client_credential",
+                "appid": self.app_id,
+                "secret": self.app_secret,
+            },
+            timeout=self.request_timeout,
+        )
         data = resp.json()
 
         if "access_token" in data:
@@ -101,6 +106,7 @@ class WeChatPublisher:
             resp = requests.post(
                 f"{MATERIAL_URL}?access_token={token}",
                 json={"type": "image", "offset": 0, "count": 1},
+                timeout=self.request_timeout,
             )
             data = resp.json()
             items = data.get("item", [])
@@ -185,6 +191,7 @@ class WeChatPublisher:
         resp = requests.post(
             f"{UPLOAD_URL}?access_token={token}&type=image",
             files={"media": (filename, file_buf, "image/jpeg")},
+            timeout=self.request_timeout,
         )
         data = resp.json()
         mid = data.get("media_id", "")
@@ -246,7 +253,15 @@ class WeChatPublisher:
         返回 {"success": bool, "media_id": str, "message": str}
         """
         if not self.ready:
-            return {"success": False, "media_id": "", "message": "AppID/AppSecret 未配置"}
+            return {
+                "success": False,
+                "status": "failed",
+                "media_id": "",
+                "external_id": None,
+                "external_url": None,
+                "message": "AppID/AppSecret 未配置",
+                "error_message": "wechat_credentials_missing",
+            }
 
         try:
             token = self._get_token()
@@ -280,6 +295,7 @@ class WeChatPublisher:
             resp = requests.post(
                 f"{DRAFT_URL}?access_token={token}",
                 json={"articles": [article]},
+                timeout=self.request_timeout,
             )
             data = resp.json()
 
@@ -288,8 +304,13 @@ class WeChatPublisher:
                 log.info(f"微信草稿创建成功: {media_id}")
                 return {
                     "success": True,
+                    "status": "draft_saved",
                     "media_id": media_id,
+                    "external_id": media_id,
+                    "external_url": None,
                     "message": f"✅ 已保存到微信公众号草稿箱 (media_id: {media_id})",
+                    "error_message": None,
+                    "response_payload": data,
                 }
             else:
                 errcode = data.get("errcode", "unknown")
@@ -297,13 +318,26 @@ class WeChatPublisher:
                 log.error(f"微信草稿创建失败: {errcode} {errmsg}")
                 return {
                     "success": False,
+                    "status": "failed",
                     "media_id": "",
+                    "external_id": None,
+                    "external_url": None,
                     "message": f"微信 API 错误 {errcode}: {errmsg}",
+                    "error_message": f"{errcode}:{errmsg}",
+                    "response_payload": data,
                 }
 
         except Exception as e:
             log.error(f"微信发布异常: {e}")
-            return {"success": False, "media_id": "", "message": str(e)}
+            return {
+                "success": False,
+                "status": "failed",
+                "media_id": "",
+                "external_id": None,
+                "external_url": None,
+                "message": str(e),
+                "error_message": str(e),
+            }
 
     def publish_and_go_live(self, title: str, content_md: str) -> dict:
         """创建草稿后直接群发（谨慎使用，每天有群发次数限制）"""
@@ -316,13 +350,26 @@ class WeChatPublisher:
             resp = requests.post(
                 f"{PUBLISH_URL}?access_token={token}",
                 json={"media_id": result["media_id"]},
+                timeout=self.request_timeout,
             )
             data = resp.json()
             if data.get("errcode") == 0:
+                result["success"] = True
+                result["status"] = "published"
+                result["external_id"] = str(data.get("publish_id") or result["media_id"])
                 result["message"] = f"✅ 已发布到微信公众号 (publish_id: {data.get('publish_id')})"
+                result["error_message"] = None
+                result["response_payload"] = data
             else:
+                result["success"] = False
+                result["status"] = "draft_saved"
                 result["message"] += f" | 群发失败: {data.get('errmsg')}"
+                result["error_message"] = str(data.get("errmsg") or "wechat_publish_failed")
+                result["response_payload"] = data
         except Exception as e:
+            result["success"] = False
+            result["status"] = "draft_saved"
             result["message"] += f" | 群发异常: {e}"
+            result["error_message"] = str(e)
 
         return result

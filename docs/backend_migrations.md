@@ -24,11 +24,18 @@
 - `geo_job_runs`
 - `geo_job_steps`
 
+## 后续 revision
+
+- `20260311_103000_add_article_publications`
+  - 新增 `article_publications`
+  - 用于平台级发布审计、失败追踪和重试链路
+
 ## 目录
 
 - `backend/alembic.ini`
 - `backend/migrations/env.py`
 - `backend/migrations/versions/20260310_213115_baseline_existing_schema.py`
+- `backend/migrations/versions/20260311_103000_add_article_publications.py`
 
 ## 使用方式
 
