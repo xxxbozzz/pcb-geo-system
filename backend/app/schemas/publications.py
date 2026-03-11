@@ -20,6 +20,7 @@ class PublicationSummaryItem(BaseModel):
     trigger_mode: str
     attempt_no: int
     retry_of_publication_id: int | None = None
+    retryable: bool = False
     external_id: str | None = None
     external_url: str | None = None
     message: str | None = None

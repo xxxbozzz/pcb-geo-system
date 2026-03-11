@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Query
 
-from backend.app.schemas.api import ApiResponse, ok_response
+from backend.app.schemas.api import ApiResponse, fail_response, ok_response
 from backend.app.services.publications_service import publications_service
 
 
@@ -41,3 +41,16 @@ def get_publication_detail(publication_id: int) -> ApiResponse:
         message="publication_detail_ready",
         data=publications_service.get_publication_detail(publication_id),
     )
+
+
+@router.post("/{publication_id}/retry", response_model=ApiResponse)
+def retry_publication(publication_id: int) -> ApiResponse:
+    """Retry a failed or incomplete publication attempt."""
+    result = publications_service.retry_publication(publication_id)
+    if not result.get("success"):
+        return fail_response(
+            message=str(result.get("message") or "publication_retry_failed"),
+            error_code=str(result.get("error_code") or "publication_retry_failed"),
+            data=result,
+        )
+    return ok_response(message="publication_retry_completed", data=result)

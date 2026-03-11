@@ -45,7 +45,20 @@ def _decode_json(value: Any) -> dict[str, Any] | list[Any] | None:
     return None
 
 
+def _is_retryable_status(*, status: str, publish_mode: str, platform: str) -> bool:
+    if platform not in {"zhihu", "wechat"}:
+        return False
+    if status == "failed":
+        return True
+    if status == "draft_saved" and publish_mode == "live":
+        return True
+    return False
+
+
 def _map_publication_summary(row: dict[str, Any]) -> PublicationSummaryItem:
+    publish_mode = str(row["publish_mode"])
+    status = str(row["status"])
+    platform = str(row["platform"])
     return PublicationSummaryItem(
         id=int(row["id"]),
         article_id=int(row["article_id"]),
@@ -56,15 +69,20 @@ def _map_publication_summary(row: dict[str, Any]) -> PublicationSummaryItem:
             if row.get("article_publish_status") is not None
             else None
         ),
-        platform=str(row["platform"]),
-        publish_mode=str(row["publish_mode"]),
-        status=str(row["status"]),
+        platform=platform,
+        publish_mode=publish_mode,
+        status=status,
         trigger_mode=str(row["trigger_mode"]),
         attempt_no=int(row.get("attempt_no") or 1),
         retry_of_publication_id=(
             int(row["retry_of_publication_id"])
             if row.get("retry_of_publication_id") is not None
             else None
+        ),
+        retryable=_is_retryable_status(
+            status=status,
+            publish_mode=publish_mode,
+            platform=platform,
         ),
         external_id=row.get("external_id"),
         external_url=row.get("external_url"),
@@ -206,6 +224,13 @@ class PublicationsService:
 
         where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return where_sql, tuple(params)
+
+    def _is_retryable_row(self, row: dict[str, Any]) -> bool:
+        return _is_retryable_status(
+            status=str(row.get("status") or ""),
+            publish_mode=str(row.get("publish_mode") or ""),
+            platform=str(row.get("platform") or ""),
+        )
 
     def _next_attempt_no(self, article_id: int, platform: str) -> int:
         value = database.fetch_value(
@@ -519,6 +544,7 @@ class PublicationsService:
                 "publish_mode": publish_mode,
                 "trigger_mode": trigger_mode,
                 "go_live": go_live,
+                "retry_of_publication_id": retry_of_publication_id,
             }
             publication_id, attempt_no = self._create_attempt(
                 article_id=article_id,
@@ -612,13 +638,25 @@ class PublicationsService:
                 "message": "未找到该发布记录。",
             }
 
-        return self.publish_article(
+        if not self._is_retryable_row(row):
+            return {
+                "success": False,
+                "error_code": "publication_not_retryable",
+                "action": "retry_publication",
+                "publication_id": publication_id,
+                "message": "该发布记录当前不允许重试。",
+            }
+
+        result = self.publish_article(
             int(row["article_id"]),
             platforms=[str(row["platform"])],
             go_live=str(row.get("publish_mode") or "draft") == "live",
             trigger_mode="retry",
             retry_of_publication_id=publication_id,
         )
+        result["action"] = "retry_publication"
+        result["publication_id"] = publication_id
+        return result
 
 
 publications_service = PublicationsService()
