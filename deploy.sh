@@ -112,9 +112,6 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
     echo "⏳ 执行数据库迁移..."
     docker exec geo-backend python -m alembic -c /app/backend/alembic.ini upgrade head
 
-    docker exec geo-agent-core python scripts/init_mysql.py 2>&1 || echo "⚠️ init_mysql 失败（可能已初始化）"
-    docker exec geo-agent-core python scripts/load_seed_topics.py 2>&1 || echo "⚠️ 种子导入跳过"
-
     echo "⏳ 检查 Backend 健康..."
     for i in $(seq 1 20); do
         if curl -fsS http://127.0.0.1:8001/api/v1/health >/dev/null 2>&1; then
