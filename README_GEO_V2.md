@@ -5,11 +5,21 @@
 ## 🚀 快速开始
 
 ### 1. 启动服务
-确保 Docker 环境已准备就绪 (4核心/8GB 内存配置已生效)：
+生产环境改为 GitHub Actions 预构建镜像部署，不再在服务器本地构建镜像。
+
+首次使用前：
+- 在 GitHub Actions 中完成 `Build Image`
+- 将 GHCR 容器包设为 `public`，或在执行部署命令的终端中导出 `GHCR_USERNAME / GHCR_TOKEN`
+
+部署命令：
 ```bash
-./deploy.sh
+./deploy.sh 47.76.50.157 latest
 ```
-启动后访问控制台：[http://localhost:8501](http://localhost:8501)
+如果需要部署到指定提交镜像，可使用：
+```bash
+./deploy.sh 47.76.50.157 sha-<git短SHA>
+```
+启动后访问控制台：[http://47.76.50.157:8503](http://47.76.50.157:8503)
 
 ### 2. 初始化自动发布 (必须)
 为了让 AI 能够发布到知乎和微信公众号，需要手动登录一次以保存 Cookie：

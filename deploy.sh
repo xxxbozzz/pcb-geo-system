@@ -1,16 +1,28 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════
-#  PCB GEO 知识引擎 — 阿里云部署脚本 v3.0
-#  用法: ./deploy.sh <服务器IP>
-#  示例: ./deploy.sh 47.76.50.157
+#  PCB GEO 知识引擎 — 镜像部署脚本 v4.0
+#  用法: ./deploy.sh <服务器IP> [镜像Tag]
+#  示例: ./deploy.sh 47.76.50.157 latest
+#  示例: ./deploy.sh 47.76.50.157 sha-237b872
 # ═══════════════════════════════════════════════════════
 
 SERVER_IP=$1
+IMAGE_TAG=${2:-latest}
 USER="root"
 REMOTE_DIR="/opt/pcb-geo-system"
+IMAGE_REPO="${GEO_APP_IMAGE_REPO:-ghcr.io/xxxbozzz/pcb-geo-system}"
+COMPOSE_FILE="docker-compose.prod.yml"
+SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/id_geo}"
+SSH_OPTS=(-o StrictHostKeyChecking=no)
+
+if [ -f "$SSH_KEY_PATH" ]; then
+    SSH_OPTS+=(-i "$SSH_KEY_PATH")
+fi
+
+SSH_TARGET="$USER@$SERVER_IP"
 
 if [ -z "$SERVER_IP" ]; then
-    echo "❌ 用法: ./deploy.sh <服务器IP>"
+    echo "❌ 用法: ./deploy.sh <服务器IP> [镜像Tag]"
     exit 1
 fi
 
@@ -32,16 +44,19 @@ cat > "$TMP_BUILD_INFO" <<EOF
   "git_commit_short": "$GIT_COMMIT_SHORT",
   "git_branch": "$GIT_BRANCH",
   "git_dirty": $GIT_DIRTY,
-  "deployed_at": "$DEPLOYED_AT"
+  "deployed_at": "$DEPLOYED_AT",
+  "image_repo": "$IMAGE_REPO",
+  "image_tag": "$IMAGE_TAG"
 }
 EOF
 
-echo "🚀 PCB GEO v3.0 部署到 $SERVER_IP"
+echo "🚀 PCB GEO v4.0 镜像部署到 $SERVER_IP"
 echo "🧾 部署版本: $GIT_BRANCH@$GIT_COMMIT_SHORT (dirty=$GIT_DIRTY)"
+echo "📦 目标镜像: $IMAGE_REPO:$IMAGE_TAG"
 
 # ─── 1. 远程环境准备 ───
 echo "📦 准备远程环境..."
-ssh $USER@$SERVER_IP << 'SETUP'
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" << 'SETUP'
     # Docker 安装检查
     if ! command -v docker &> /dev/null; then
         echo "安装 Docker..."
@@ -52,34 +67,37 @@ ssh $USER@$SERVER_IP << 'SETUP'
         echo "安装 Docker Compose..."
         apt-get update && apt-get install -y docker-compose-plugin
     fi
-    mkdir -p /opt/pcb-geo-system
+    if [ ! -d /opt/pcb-geo-system/.git ]; then
+        git clone https://github.com/xxxbozzz/pcb-geo-system.git /opt/pcb-geo-system
+    fi
     echo "✅ 环境就绪"
 SETUP
 
-# ─── 2. 同步代码 ───
-echo "📤 同步代码..."
-rsync -avz --progress \
-    --exclude '.git' --exclude 'venv' --exclude '__pycache__' \
-    --exclude '*.log' --exclude '.DS_Store' --exclude 'database/mysql_data' \
-    --exclude 'database/chroma_data' --exclude 'node_modules' \
-    ./ $USER@$SERVER_IP:$REMOTE_DIR/
+# ─── 2. 拉取部署文件 ───
+echo "📥 拉取最新部署文件..."
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" << 'SYNC'
+    cd /opt/pcb-geo-system
+    rm -f .env.image
+    git checkout main
+    git pull --ff-only origin main
+SYNC
 
-rsync -avz "$TMP_BUILD_INFO" "$USER@$SERVER_IP:$REMOTE_DIR/build_info.json"
+scp "${SSH_OPTS[@]}" "$TMP_BUILD_INFO" "$SSH_TARGET:$REMOTE_DIR/build_info.json" >/dev/null
 
-# ─── 3. 远程构建 & 启动 ───
-echo "🐳 构建并启动容器..."
-ssh $USER@$SERVER_IP << 'DEPLOY'
+# ─── 3. 拉镜像并启动 ───
+echo "🐳 拉取镜像并启动容器..."
+if [ -n "${GHCR_USERNAME:-}" ] && [ -n "${GHCR_TOKEN:-}" ]; then
+    printf '%s' "$GHCR_TOKEN" | ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "docker login ghcr.io -u '$GHCR_USERNAME' --password-stdin"
+else
+    echo "ℹ️ 未提供 GHCR_USERNAME / GHCR_TOKEN，默认按公开镜像拉取"
+fi
+
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" <<DEPLOY
     cd /opt/pcb-geo-system
 
-    # 清理旧构建缓存（防止 snapshot 损坏）
-    docker compose down 2>/dev/null
-    docker builder prune -f 2>/dev/null
-    docker system prune -f 2>/dev/null
+    GEO_APP_IMAGE=$IMAGE_REPO:$IMAGE_TAG docker compose -f $COMPOSE_FILE pull
+    GEO_APP_IMAGE=$IMAGE_REPO:$IMAGE_TAG docker compose -f $COMPOSE_FILE up -d --force-recreate --no-build
 
-    # 构建并启动
-    docker compose up -d --build --force-recreate
-
-    # 等待 MySQL 就绪
     echo "⏳ 等待 MySQL..."
     sleep 10
     for i in $(seq 1 30); do
@@ -90,21 +108,30 @@ ssh $USER@$SERVER_IP << 'DEPLOY'
         sleep 2
     done
 
-    # 初始化数据库表
-    docker exec geo-agent-core python scripts/init_mysql.py 2>&1 || echo "⚠️ init_mysql 失败（可能已初始化）"
+    echo "⏳ 执行数据库迁移..."
+    docker exec geo-backend python -m alembic -c /app/backend/alembic.ini upgrade head
 
-    # 导入种子话题
+    docker exec geo-agent-core python scripts/init_mysql.py 2>&1 || echo "⚠️ init_mysql 失败（可能已初始化）"
     docker exec geo-agent-core python scripts/load_seed_topics.py 2>&1 || echo "⚠️ 种子导入跳过"
+
+    echo "⏳ 检查 Backend 健康..."
+    for i in $(seq 1 20); do
+        if curl -fsS http://127.0.0.1:8001/api/v1/health >/dev/null 2>&1; then
+            echo "✅ Backend 就绪"
+            break
+        fi
+        sleep 2
+    done
 
     # 检查容器状态
     echo ""
     echo "📊 容器状态:"
-    docker ps --format 'table {{.Names}}\t{{.Status}}'
+    GEO_APP_IMAGE=$IMAGE_REPO:$IMAGE_TAG docker compose -f $COMPOSE_FILE ps
 
     echo ""
     echo "═══════════════════════════════════"
     echo "  ✅ 部署完成!"
-    echo "  Dashboard: http://$(curl -s ifconfig.me 2>/dev/null || echo $HOSTNAME):8503"
+    echo "  Dashboard: http://\$(curl -s ifconfig.me 2>/dev/null || echo \$HOSTNAME):8503"
     echo "═══════════════════════════════════"
 DEPLOY
 
