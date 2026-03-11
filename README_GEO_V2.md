@@ -21,6 +21,9 @@
 ```
 启动后访问控制台：[http://47.76.50.157:8503](http://47.76.50.157:8503)
 
+日常发布只跑镜像拉取、容器重建和 Alembic 迁移，不再混入初始化脚本。
+首次初始化、种子导入、定期清理请看：[docs/ops_deploy_runbook.md](/Users/kev/Documents/pcb-geo-system/docs/ops_deploy_runbook.md)
+
 ### 2. 初始化自动发布 (必须)
 为了让 AI 能够发布到知乎和微信公众号，需要手动登录一次以保存 Cookie：
 

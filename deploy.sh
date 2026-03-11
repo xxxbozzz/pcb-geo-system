@@ -26,14 +26,16 @@ if [ -z "$SERVER_IP" ]; then
     exit 1
 fi
 
-GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-GIT_COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-if [ -n "$(git status --porcelain --untracked-files=all 2>/dev/null)" ]; then
-    GIT_DIRTY=true
+if [[ "$IMAGE_TAG" == sha-* ]]; then
+    GIT_COMMIT="${IMAGE_TAG#sha-}"
+    GIT_COMMIT_SHORT="${IMAGE_TAG#sha-}"
+    GIT_BRANCH="main"
 else
-    GIT_DIRTY=false
+    GIT_COMMIT="$IMAGE_TAG"
+    GIT_COMMIT_SHORT="$IMAGE_TAG"
+    GIT_BRANCH="main"
 fi
+GIT_DIRTY=false
 DEPLOYED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 TMP_BUILD_INFO=$(mktemp /tmp/pcb-geo-build.XXXXXX.json)
 trap 'rm -f "$TMP_BUILD_INFO"' EXIT
@@ -93,7 +95,7 @@ else
 fi
 
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
-    "IMAGE_REPO='$IMAGE_REPO' IMAGE_TAG='$IMAGE_TAG' COMPOSE_FILE='$COMPOSE_FILE' bash -s" <<'DEPLOY'
+    "IMAGE_REPO='$IMAGE_REPO' IMAGE_TAG='$IMAGE_TAG' COMPOSE_FILE='$COMPOSE_FILE' SERVER_IP='$SERVER_IP' bash -s" <<'DEPLOY'
     cd /opt/pcb-geo-system
 
     GEO_APP_IMAGE="$IMAGE_REPO:$IMAGE_TAG" docker compose -f "$COMPOSE_FILE" pull backend geo-agent-app dashboard scheduler
@@ -129,7 +131,7 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
     echo ""
     echo "═══════════════════════════════════"
     echo "  ✅ 部署完成!"
-    echo "  Dashboard: http://\$(curl -s ifconfig.me 2>/dev/null || echo \$HOSTNAME):8503"
+    echo "  Dashboard: http://$SERVER_IP:8503"
     echo "═══════════════════════════════════"
 DEPLOY
 
