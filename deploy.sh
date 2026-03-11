@@ -92,11 +92,12 @@ else
     echo "ℹ️ 未提供 GHCR_USERNAME / GHCR_TOKEN，默认按公开镜像拉取"
 fi
 
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" <<DEPLOY
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+    "IMAGE_REPO='$IMAGE_REPO' IMAGE_TAG='$IMAGE_TAG' COMPOSE_FILE='$COMPOSE_FILE' bash -s" <<'DEPLOY'
     cd /opt/pcb-geo-system
 
-    GEO_APP_IMAGE=$IMAGE_REPO:$IMAGE_TAG docker compose -f $COMPOSE_FILE pull
-    GEO_APP_IMAGE=$IMAGE_REPO:$IMAGE_TAG docker compose -f $COMPOSE_FILE up -d --force-recreate --no-build
+    GEO_APP_IMAGE="$IMAGE_REPO:$IMAGE_TAG" docker compose -f "$COMPOSE_FILE" pull backend geo-agent-app dashboard scheduler
+    GEO_APP_IMAGE="$IMAGE_REPO:$IMAGE_TAG" docker compose -f "$COMPOSE_FILE" up -d --force-recreate --no-build backend geo-agent-app dashboard scheduler
 
     echo "⏳ 等待 MySQL..."
     sleep 10
@@ -126,7 +127,7 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" <<DEPLOY
     # 检查容器状态
     echo ""
     echo "📊 容器状态:"
-    GEO_APP_IMAGE=$IMAGE_REPO:$IMAGE_TAG docker compose -f $COMPOSE_FILE ps
+    GEO_APP_IMAGE="$IMAGE_REPO:$IMAGE_TAG" docker compose -f "$COMPOSE_FILE" ps
 
     echo ""
     echo "═══════════════════════════════════"
