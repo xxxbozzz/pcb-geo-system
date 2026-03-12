@@ -749,8 +749,9 @@ function getErrorMessage(error: unknown) {
 }
 
 .publications-hero {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+  align-items: start;
   gap: 20px;
   padding: 28px 32px;
   border: 1px solid var(--border-subtle);
@@ -759,7 +760,7 @@ function getErrorMessage(error: unknown) {
     linear-gradient(90deg, rgba(37, 99, 235, 0.05) 0%, transparent 100%),
     var(--bg-panel);
   position: relative;
-  overflow: hidden;
+  isolation: isolate;
 }
 
 .publications-hero::before {
@@ -773,6 +774,7 @@ function getErrorMessage(error: unknown) {
 }
 
 .publications-hero__main {
+  min-width: 0;
   max-width: 720px;
 }
 
@@ -808,7 +810,10 @@ function getErrorMessage(error: unknown) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  min-width: min(360px, 100%);
+  min-width: 0;
+  width: 100%;
+  max-width: 360px;
+  align-self: start;
 }
 
 .publications-pill {
@@ -1177,7 +1182,7 @@ function getErrorMessage(error: unknown) {
 
 @media (max-width: 920px) {
   .publications-hero {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .publications-hero__meta {
