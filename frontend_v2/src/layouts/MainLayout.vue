@@ -59,7 +59,10 @@
       </div>
 
       <el-main class="p-0 bg-[var(--bg-dark)] h-full relative">
-        <div class="absolute inset-0 overflow-y-auto px-4 py-4 md:px-8 md:py-6 custom-scrollbar flex flex-col">
+        <div
+          ref="scrollContainerRef"
+          class="absolute inset-0 overflow-y-auto px-4 py-4 md:px-8 md:py-6 custom-scrollbar flex flex-col"
+        >
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
               <component :is="Component" />
@@ -72,11 +75,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Monitor, Menu } from 'lucide-vue-next'
 import MenuContent from './MenuContent.vue'
 
 const mobileMenuOpen = ref(false)
+const scrollContainerRef = ref<HTMLDivElement | null>(null)
+const route = useRoute()
+
+function resetContentScroll() {
+  scrollContainerRef.value?.scrollTo({
+    top: 0,
+    behavior: 'auto',
+  })
+}
+
+watch(
+  () => route.path,
+  async () => {
+    await nextTick()
+    resetContentScroll()
+  },
+)
+
+onMounted(() => {
+  resetContentScroll()
+})
 </script>
 
 <style>
