@@ -131,10 +131,12 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
     echo ""
     echo "═══════════════════════════════════"
     echo "  ✅ 部署完成!"
-    echo "  Console V2: http://$SERVER_IP:8001/console"
-    echo "  Dashboard: http://$SERVER_IP:8503"
+    echo "  Console V2: http://$SERVER_IP:8503/console"
+    echo "  Backend API: http://$SERVER_IP:8001/api/v1"
+    echo "  Legacy Dashboard: http://$SERVER_IP:8504"
     echo "═══════════════════════════════════"
 DEPLOY
 
-echo "🎉 部署完成! Console V2: http://$SERVER_IP:8001/console"
-echo "🎉 旧 Dashboard 仍可访问: http://$SERVER_IP:8503"
+echo "🎉 部署完成! Console V2: http://$SERVER_IP:8503/console"
+echo "🎉 Backend API: http://$SERVER_IP:8001/api/v1"
+echo "🎉 旧 Dashboard 仍可访问: http://$SERVER_IP:8504"

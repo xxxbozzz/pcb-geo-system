@@ -1,0 +1,25 @@
+{
+  "version": "2.8",
+  "children": [
+    {
+      "type": "rectangle",
+      "id": "elL8g",
+      "x": -125,
+      "y": -156,
+      "fill": "#CCCCCC",
+      "width": 324,
+      "height": 177
+    },
+    {
+      "type": "text",
+      "id": "CYKLf",
+      "x": -77,
+      "y": -80,
+      "fill": "#000000",
+      "content": "hello\n",
+      "fontFamily": "Inter",
+      "fontSize": 16,
+      "fontWeight": "normal"
+    }
+  ]
+}

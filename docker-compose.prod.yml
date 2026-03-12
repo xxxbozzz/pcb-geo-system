@@ -31,6 +31,7 @@ services:
       retries: 5
     ports:
       - "8001:8001"
+      - "8503:8001"
     command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8001
 
   geo-agent-app:
@@ -94,7 +95,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "8503:8503"
+      - "8504:8503"
     command: streamlit run dashboard/app.py --server.port 8503 --server.address 0.0.0.0 --server.enableCORS false --server.enableXsrfProtection false
 
   scheduler:

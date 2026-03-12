@@ -33,8 +33,9 @@
 
 部署完成后的主要入口：
 
-- 新控制台 V2：`http://<服务器IP>:8001/console`
-- 旧 Streamlit Dashboard：`http://<服务器IP>:8503`
+- 新控制台 V2：`http://<服务器IP>:8503/console`
+- Backend API：`http://<服务器IP>:8001/api/v1`
+- 旧 Streamlit Dashboard：`http://<服务器IP>:8504`
 
 日常发布不会再执行：
 
