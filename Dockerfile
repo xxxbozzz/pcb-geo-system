@@ -1,3 +1,12 @@
+# Frontend build stage
+FROM node:20-bookworm-slim AS frontend-builder
+
+WORKDIR /frontend
+COPY frontend_v2/package*.json ./
+RUN npm ci
+COPY frontend_v2/ ./
+RUN npm run build
+
 # Use official Playwright image (includes Python & Browsers)
 FROM mcr.microsoft.com/playwright/python:v1.41.0-jammy
 
@@ -39,6 +48,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ---------------------------------------------------------
 
 COPY . .
+COPY --from=frontend-builder /frontend/dist /app/frontend_v2_dist
 
 ENV PYTHONUNBUFFERED=1
 

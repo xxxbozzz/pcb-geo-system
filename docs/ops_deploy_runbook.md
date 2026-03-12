@@ -31,6 +31,11 @@
 - 执行 `alembic upgrade head`
 - 检查 backend 健康状态
 
+部署完成后的主要入口：
+
+- 新控制台 V2：`http://<服务器IP>:8001/console`
+- 旧 Streamlit Dashboard：`http://<服务器IP>:8503`
+
 日常发布不会再执行：
 
 - `scripts/init_mysql.py`

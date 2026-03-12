@@ -131,8 +131,10 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
     echo ""
     echo "═══════════════════════════════════"
     echo "  ✅ 部署完成!"
+    echo "  Console V2: http://$SERVER_IP:8001/console"
     echo "  Dashboard: http://$SERVER_IP:8503"
     echo "═══════════════════════════════════"
 DEPLOY
 
-echo "🎉 部署完成! Dashboard: http://$SERVER_IP:8503"
+echo "🎉 部署完成! Console V2: http://$SERVER_IP:8001/console"
+echo "🎉 旧 Dashboard 仍可访问: http://$SERVER_IP:8503"
