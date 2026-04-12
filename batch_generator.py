@@ -741,6 +741,25 @@ def run_trend_scout(max_keywords: int = 10) -> list[str]:
         return []
 
 
+def get_fallback_pending_keywords(limit: int = 1) -> list:
+    """GEO 真空词为空时，回退消费普通待处理关键词以恢复生产。"""
+    cnx = db_manager.get_connection()
+    if not cnx:
+        return []
+    try:
+        cursor = cnx.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, keyword, search_volume FROM geo_keywords "
+            "WHERE target_article_id IS NULL AND (search_volume < %s OR search_volume IS NULL) "
+            "ORDER BY id ASC LIMIT %s",
+            (GEO_GAP_PRIORITY, limit),
+        )
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        cnx.close()
+
+
 # ═══════════════════════════════════════════
 #  主循环
 # ═══════════════════════════════════════════
@@ -800,6 +819,23 @@ def main():
                 pending_gap = get_pending_gap_keywords(limit=remaining)
 
             if not pending_gap:
+                fallback_pending = get_fallback_pending_keywords(limit=1)
+                if fallback_pending:
+                    log.info(
+                        "🔁 当前无 GEO 真空词，回退消费普通待处理关键词以保持生产连续。"
+                    )
+                    success = process_keyword(agents, tasks, fallback_pending[0])
+                    if success:
+                        total_success += 1
+                    else:
+                        total_failed += 1
+
+                    log.info(
+                        f"累计 | 成功: {total_success} | 失败: {total_failed} | {tracker.monthly_summary()}"
+                    )
+                    time.sleep(COOLDOWN_SECONDS)
+                    continue
+
                 log.info(f"💤 当前无可生产的 GEO 真空词，{GAP_MODE_RETRY_SECONDS // 60} 分钟后重试。")
                 time.sleep(GAP_MODE_RETRY_SECONDS)
                 continue
