@@ -59,7 +59,6 @@ nohup python batch_generator.py > batch.log 2>&1 &
 
 ### 3. SEO 与官网同步
 - 导出的 HTML 现在包含 **Schema.org JSON-LD** (Article, FAQPage)。
-- 自动生成 `sitemap.xml` 和 `robots.txt`。
 - 请定期将 `output/website_sync` 目录同步到官网服务器。
 
 ### 4. 资源保护

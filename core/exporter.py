@@ -125,7 +125,7 @@ class WebsiteExporter:
             return False
 
     def cleanup_old_files(self):
-        """清理同步目录中非今天的 HTML 文件"""
+        """清理同步目录中非今天的 HTML 文件，并移除不再使用的 sitemap.xml"""
         os.makedirs(self.output_dir, exist_ok=True)
 
         today_str = date.today().strftime("%Y-%m-%d")
@@ -141,8 +141,17 @@ class WebsiteExporter:
             except Exception as e:
                 log.warning(f"清理文件失败 {filepath}: {e}")
 
+        legacy_sitemap = os.path.join(self.output_dir, "sitemap.xml")
+        if os.path.exists(legacy_sitemap):
+            try:
+                os.remove(legacy_sitemap)
+                removed += 1
+                log.info("🗑️ 已移除旧版 sitemap.xml，同步目录不再保留站点地图")
+            except Exception as e:
+                log.warning(f"移除旧版 sitemap.xml 失败 {legacy_sitemap}: {e}")
+
         if removed > 0:
-            log.info(f"🧹 清理了 {removed} 个非今天的 HTML 文件")
+            log.info(f"🧹 清理了 {removed} 个旧文件")
 
     # ──────────── 内部方法 ────────────
 
