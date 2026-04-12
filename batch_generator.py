@@ -105,6 +105,7 @@ llm = ChatOpenAI(
     temperature=0.1,
     timeout=120,
 )
+agent_llm = os.environ.get("OPENAI_MODEL") or "deepseek-chat"
 
 
 # ═══════════════════════════════════════════
@@ -236,7 +237,7 @@ def check_api_health() -> bool:
 def run_scout(agents: GeoAgents, tasks: GeoTasks):
     """侦察循环 — 发现新关键词"""
     log.info("🕵️ 触发侦察循环...")
-    scout = agents.scout_agent(llm)
+    scout = agents.scout_agent(agent_llm)
     crew = Crew(agents=[scout], tasks=[tasks.scout_task(scout)], verbose=True)
     try:
         crew.kickoff()
@@ -247,9 +248,9 @@ def run_scout(agents: GeoAgents, tasks: GeoTasks):
 
 def generate_article(agents: GeoAgents, tasks: GeoTasks, keyword: str):
     """执行 采集→结构化→生成 流水线"""
-    collector = agents.collector_agent(llm)
-    templater = agents.templater_agent(llm)
-    generator = agents.generator_agent(llm)
+    collector = agents.collector_agent(agent_llm)
+    templater = agents.templater_agent(agent_llm)
+    generator = agents.generator_agent(agent_llm)
 
     capability_context = capability_store.build_context(keyword, limit=5)
     log.info(f"🧠 深亚工艺能力上下文已加载: {keyword}")
