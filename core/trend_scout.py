@@ -31,11 +31,16 @@ import re
 import time
 import json
 import logging
+from datetime import datetime, timedelta
 
 import requests
 from bs4 import BeautifulSoup
 
 log = logging.getLogger("GeoGapScout")
+
+GEO_GAP_PRIORITY = 9999
+GEO_GAP_MIN_QUALITY = int(os.getenv("GEO_GAP_MIN_QUALITY", "90"))
+GEO_GAP_REFRESH_DAYS = int(os.getenv("GEO_GAP_REFRESH_DAYS", "30"))
 
 # ─────────────────────────────────────────────────────────────
 #  PCB 工程师常见问题种子库（这些是用户真实会问 AI 的问题）
@@ -107,6 +112,7 @@ class GeoGapScout:
         self.max_inject = max_inject
         self._api_key = os.getenv("DEEPSEEK_API_KEY", "")
         self._api_base = "https://api.deepseek.com/v1"
+        self._refresh_before = datetime.now() - timedelta(days=GEO_GAP_REFRESH_DAYS)
 
     # ══════════════════════════════════════════
     #  公共入口
@@ -124,9 +130,9 @@ class GeoGapScout:
         candidates += self._scrape_zhihu_hot()
         log.info(f"候选问题: {len(candidates)} 个")
 
-        # 2. 过滤我们知识库已覆盖的
+        # 2. 过滤我们知识库已稳定覆盖的
         candidates = self._filter_covered(candidates)
-        log.info(f"知识库未覆盖: {len(candidates)} 个")
+        log.info(f"候选机会: {len(candidates)} 个")
 
         # 3. 逐个用 DeepSeek 评估 AI 回答质量
         gap_keywords = []
@@ -208,35 +214,111 @@ GAP=NO|原因（30字以内）"""
             # 评估失败时保守处理：视为机会（宁可多生成）
             return True, "评估超时，保守视为GEO机会"
 
-    def _filter_covered(
-        self, candidates: list[tuple[str, str]]
-    ) -> list[tuple[str, str]]:
-        """过滤知识库已有文章覆盖的关键词"""
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        """归一化文本，便于做关键词与标题的粗匹配。"""
+        return re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", (text or "").lower())
+
+    def _load_keyword_coverage(self) -> tuple[dict[str, dict], list[dict]]:
+        """加载关键词覆盖状态与文章承载状态。"""
+        from core.db_manager import db_manager
+
+        cnx = db_manager.get_connection()
+        if not cnx:
+            return {}, []
         try:
-            from core.db_manager import db_manager
-
-            cnx = db_manager.get_connection()
-            if not cnx:
-                return candidates
-
             cursor = cnx.cursor(dictionary=True)
-            cursor.execute("SELECT keyword FROM geo_keywords")
-            existing_kws = {r["keyword"] for r in cursor.fetchall()}
+            cursor.execute(
+                """
+                SELECT
+                    k.keyword,
+                    k.target_article_id,
+                    k.search_volume,
+                    k.created_at AS keyword_created_at,
+                    a.id AS article_id,
+                    a.title,
+                    a.quality_score,
+                    a.publish_status,
+                    a.updated_at
+                FROM geo_keywords k
+                LEFT JOIN geo_articles a ON a.id = k.target_article_id
+                """
+            )
+            keyword_rows = cursor.fetchall()
 
-            cursor.execute("SELECT title FROM geo_articles")
-            existing_titles = {r["title"] for r in cursor.fetchall()}
+            cursor.execute(
+                """
+                SELECT id, title, quality_score, publish_status, updated_at
+                FROM geo_articles
+                """
+            )
+            article_rows = cursor.fetchall()
+        finally:
             cursor.close()
             cnx.close()
 
+        coverage_map = {row["keyword"]: row for row in keyword_rows}
+        return coverage_map, article_rows
+
+    def _classify_keyword_gap(self, keyword: str, coverage_row: dict | None) -> tuple[bool, str]:
+        """判断一个关键词是否仍然属于 GEO 机会。"""
+        if not coverage_row:
+            return True, "knowledge_blank"
+
+        if coverage_row.get("target_article_id") is None:
+            return True, "queued_without_article"
+
+        quality_score = int(coverage_row.get("quality_score") or 0)
+        publish_status = int(coverage_row.get("publish_status") or 0)
+        updated_at = coverage_row.get("updated_at")
+
+        if quality_score < GEO_GAP_MIN_QUALITY:
+            return True, "coverage_quality_weak"
+
+        if publish_status in (0, 3):
+            return True, "coverage_state_weak"
+
+        if updated_at and updated_at < self._refresh_before:
+            return True, "coverage_stale"
+
+        return False, "covered"
+
+    def _has_recent_strong_title_match(self, keyword: str, article_rows: list[dict]) -> bool:
+        """检查是否已有近期高质量文章标题稳定覆盖该主题。"""
+        normalized_keyword = self._normalize_text(keyword)
+        for row in article_rows:
+            quality_score = int(row.get("quality_score") or 0)
+            publish_status = int(row.get("publish_status") or 0)
+            updated_at = row.get("updated_at")
+            if quality_score < GEO_GAP_MIN_QUALITY or publish_status in (0, 3):
+                continue
+            if updated_at and updated_at < self._refresh_before:
+                continue
+            normalized_title = self._normalize_text(row.get("title") or "")
+            if normalized_keyword and (
+                normalized_keyword in normalized_title or normalized_title in normalized_keyword
+            ):
+                return True
+        return False
+
+    def _filter_covered(self, candidates: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """过滤知识库中已被高质量、近期文章稳定覆盖的关键词。"""
+        try:
+            coverage_map, article_rows = self._load_keyword_coverage()
             filtered = []
             for question, keyword in candidates:
-                # 精确匹配关键词
-                if keyword in existing_kws:
+                is_gap, gap_reason = self._classify_keyword_gap(keyword, coverage_map.get(keyword))
+                if is_gap:
+                    filtered.append((question, keyword))
+                    log.debug(f"  ↺ 保留候选 [{keyword}] — {gap_reason}")
                     continue
-                # 模糊匹配文章标题
-                if any(keyword in t or t in keyword for t in existing_titles):
+
+                if self._has_recent_strong_title_match(keyword, article_rows):
+                    log.debug(f"  ❌ 已稳定覆盖 [{keyword}]")
                     continue
+
                 filtered.append((question, keyword))
+                log.debug(f"  ↺ 标题覆盖不足，保留候选 [{keyword}]")
 
             return filtered
 
@@ -283,14 +365,47 @@ GAP=NO|原因（30字以内）"""
         """将 GEO 机会关键词写入 geo_keywords 表"""
         try:
             from core.db_manager import db_manager
+            cnx = db_manager.get_connection()
+            if not cnx:
+                return []
 
             injected = []
-            for keyword, reason in gap_kws[: self.max_inject]:
-                # 用 9999 标记这是 GEO 高优先级词（系统会优先消费高 search_volume 的词）
-                success = db_manager.add_keyword(keyword, search_volume=9999, difficulty=20)
-                if success:
+            try:
+                cursor = cnx.cursor()
+                for keyword, reason in gap_kws[: self.max_inject]:
+                    cursor.execute("SELECT id, target_article_id FROM geo_keywords WHERE keyword = %s", (keyword,))
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        cursor.execute(
+                            """
+                            UPDATE geo_keywords
+                            SET search_volume = %s,
+                                difficulty = %s,
+                                cannibalization_risk = 0,
+                                target_article_id = NULL
+                            WHERE id = %s
+                            """,
+                            (GEO_GAP_PRIORITY, 20, existing[0]),
+                        )
+                        action = "回填队列"
+                    else:
+                        cursor.execute(
+                            """
+                            INSERT INTO geo_keywords (keyword, search_volume, difficulty)
+                            VALUES (%s, %s, %s)
+                            """,
+                            (keyword, GEO_GAP_PRIORITY, 20),
+                        )
+                        action = "注入新词"
+
                     injected.append(keyword)
-                    log.info(f"  → 注入: 「{keyword}」({reason})")
+                    log.info(f"  → {action}: 「{keyword}」({reason})")
+
+                cnx.commit()
+            finally:
+                cursor.close()
+                cnx.close()
 
             return injected
 
